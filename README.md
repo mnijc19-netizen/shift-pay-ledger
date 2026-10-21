@@ -2,6 +2,16 @@
 
 面向倒班员工的个人工资记录网页。React 19 + TypeScript + Vite；没有业务后端、注册或上传工资数据的接口。浏览器 localStorage 保存账本，手机和桌面响应式布局。
 
+## 在线使用与 GitHub 部署
+
+电脑或手机浏览器直接打开：**https://mnijc19-netizen.github.io/shift-pay-ledger/**
+
+源码仓库：https://github.com/mnijc19-netizen/shift-pay-ledger
+
+推送 `main` 后，GitHub Actions 自动运行工资计算测试、构建并部署到 GitHub Pages。无需启动本地服务器，也不依赖 ChatGPT 或 Codex 的内置站点。Vite 使用相对资源路径，支持仓库子目录网址。
+
+网页无需登录。每台设备、每个浏览器独立保存账本；手机与电脑不会自动同步，可在「数据与备份」通过 JSON 迁移。原内置网址与 GitHub Pages 的存储也相互独立，迁移时应导出并恢复 JSON。
+
 ## 启动与测试
 
 需要 Node.js 22.12+ 或 Node.js 24 LTS。在本项目目录执行：

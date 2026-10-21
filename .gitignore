@@ -6,3 +6,5 @@ playwright-report/
 .sites-runtime/
 .sites-checkout/
 .env*
+.serena/
+.openai/
