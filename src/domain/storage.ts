@@ -16,7 +16,7 @@ export function parseBackup(raw:string):State{
   unique(state.payslips.map(x=>x.id),'工资条');unique(state.snapshots.map(x=>x.id),'快照');
   for(const c of Object.values(state.cycles)){unique(c.extras.map(x=>x.id),'收入');unique(c.deductions.map(x=>x.id),'扣款');}
   for(const c of Object.values(state.cycles))unique(c.deductions.filter(x=>['养老保险','医疗保险','失业保险','住房公积金'].includes(x.name)).map(x=>x.name),'五险一金项目');
-  for(const p of state.payslips){unique(p.rows.map(x=>x.id),'工资条项目');const keys=p.rows.map(x=>x.key).filter(Boolean);unique(keys,'工资条映射');}
+  for(const p of state.payslips){unique(p.rows.map(x=>x.id),'工资条项目');const keys=p.rows.map(x=>x.key).filter(Boolean);unique(keys,'工资条映射');if(keys.includes('night-meal')&&keys.some(k=>k.startsWith('night-')&&k!=='night-meal'))throw new Error('夜班餐补合计与逐班映射重复');}
   return state;
 }
 export function upgradeFuzhouPolicy(state:State):State{
@@ -42,7 +42,14 @@ export function upgradeStartDateBasis(state:State):State{
   state.audit.push({id:uid(),at:new Date().toISOString(),action:'整班按上班日计薪',note:'按用户指定：整班使用开始上班日期的工资类型，过零点不换倍率；工时、实际金额、手动修正和历史快照保留。',before,after:JSON.stringify({rules:state.rules,startDateBasisApplied:true})});
   return state;
 }
-export const upgradeSavedState=(state:State)=>upgradeStartDateBasis(upgradeFuzhouPolicy(state));
+export function upgradeMealCard(state:State):State{
+  if(state.rules.mealMethod==='card')return state;
+  const before=JSON.stringify({rules:state.rules});
+  state.rules={...state.rules,mealMethod:'card',version:state.rules.version+1,updatedAt:new Date().toISOString()};
+  state.audit.push({id:uid(),at:new Date().toISOString(),action:'月餐补确认为饭卡福利',note:'用户确认：每月400元充入饭卡，不计应发或实发工资；夜班餐补仍计入工资。原工资条、实际金额、历史快照保留。',before,after:JSON.stringify({rules:state.rules})});
+  return state;
+}
+export const upgradeSavedState=(state:State)=>upgradeMealCard(upgradeStartDateBasis(upgradeFuzhouPolicy(state)));
 export function load():{state:State;error:string;raw:string}{
   let raw='';
   try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?upgradeSavedState(parseBackup(raw)):initialState(),error:'',raw:''};}

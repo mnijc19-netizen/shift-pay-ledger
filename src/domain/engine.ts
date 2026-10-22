@@ -117,7 +117,7 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
       add({...basic('meal-'+s.id,'白班加班餐补',s.allowanceConfirmed&&s.ruleVersion===r.version,`${r.dayMeal} × 1`,`${s.date} 逐班勾选`,s.allowanceConfirmed?'payslip':'pending'),shiftIds:[s.id]},r.dayMeal);
     }
     const lateMeal=s.nightAllowance&&(!r.fuzhouPolicy||s.allowanceConfirmed&&s.nightAmount!==''||isLateMealEligible(s,out.segments.some(seg=>dec(seg.overtime).gt(0))));
-    if(lateMeal)add({...basic('night-'+s.id,r.fuzhouPolicy?'22点后加班晚餐补贴':'夜班津贴',s.allowanceConfirmed&&(s.nightAmount!==''||s.ruleVersion===r.version),`${s.nightAmount||r.night} × 1`,`${s.date}；加班超过22点；每班一笔，实际金额优先`,s.allowanceConfirmed?'payslip':'pending'),shiftIds:[s.id]},s.nightAmount||r.night);
+    if(lateMeal)add({...basic('night-'+s.id,r.fuzhouPolicy?(s.type==='night'?'夜班餐补':'晚间加班餐补'):'夜班津贴',s.allowanceConfirmed&&(s.nightAmount!==''||s.ruleVersion===r.version),`${s.nightAmount||r.night} × 1`,`${s.date}；加班超过22点；每班一笔，实际金额优先`,s.allowanceConfirmed?'payslip':'pending'),shiftIds:[s.id]},s.nightAmount||r.night);
   }
   for(const [key,g] of groups){
     const multiplier=g.type==='holiday'?r.holidayRate:g.type==='rest'?r.restRate:r.normalRate;
@@ -126,10 +126,10 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
   if(r.postEnabled&&c.postEnabled)add(basic('post','岗位津贴',c.postConfirmed&&verified,r.postProrate&&c.mode==='partial'?`${r.post} ÷ ${denominator} × ${c.paidDays}`:`${r.post} × 1`,'岗位资格及部分周期规则可修改',c.postConfirmed?'payslip':'auto'),dec(r.post).mul(r.postProrate?factor:1));
   if(c.mealEnabled){
     const hasDayMeal=shifts.some(s=>s.dayMeal);
-    const both=hasDayMeal&&!c.mealDuplicateChecked;
+    const both=hasDayMeal&&!c.mealDuplicateChecked&&r.mealMethod!=='card';
     if(both)warnings.push('月餐补与白班餐补是否重复尚未确认：月餐补暂列发放方式待定，不计现金预测。');
     const method=both?'unknown':r.mealMethod;
-    add({...basic('meal-month','月度餐补',c.mealConfirmed&&verified&&!both,`${r.meal}${r.mealProrate&&c.mode==='partial'?` ÷ ${denominator} × ${c.paidDays}`:' × 1'}`,'发放方式待核验；与逐班餐补分别核对',c.mealConfirmed?'payslip':'pending'),method},dec(r.meal).mul(r.mealProrate?factor:1));
+    add({...basic('meal-month',method==='card'?'饭卡餐补':'月度餐补',c.mealConfirmed&&verified&&!both,`${r.meal}${r.mealProrate&&c.mode==='partial'?` ÷ ${denominator} × ${c.paidDays}`:' × 1'}`,method==='card'?'饭卡充值，单独列为福利，不计应发或实发工资；夜班餐补另计现金':'发放方式待核验；与逐班餐补分别核对',c.mealConfirmed?'payslip':'pending'),method},dec(r.meal).mul(r.mealProrate?factor:1));
     if(r.mealMethod==='unknown')warnings.push('月餐补的发放方式未知，未计入现金收入与实发。');
   }
   if(c.heatEnabled)add(basic('heat',r.fuzhouPolicy&&c.month>='2026-10'?'公司夏季福利':'高温补贴',c.heatConfirmed&&(c.heatActual!==''||verified),c.heatActual!==''?'本期实际录入':r.heatProrate&&c.mode==='partial'?`${r.heat} ÷ ${denominator} × ${c.paidDays}`:`${r.heat} × 1`,'截图6–9月50元福利；法定高温作业津贴须另外核验，不能以50元替代',c.heatConfirmed?'payslip':'manual'),c.heatActual!==''?c.heatActual:dec(r.heat).mul(r.heatProrate?factor:1));
@@ -161,6 +161,10 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
 }
 
 export interface DailyEarning {base:string; overtime:string; allowances:string; total:string; hours:string; pending:boolean}
+function dailyBase(r:Rules,c?:Cycle){
+  const denominator=c?.denominator||r.baseDays,actualDays=c?.mode==='partial'?c.paidDays:c?.expectedDays||denominator;
+  return c?.baseActual!==undefined&&c.baseActual!==''?(dec(actualDays).gt(0)?dec(c.baseActual).div(actualDays):dec(0)):c?.mode==='manual'?dec(0):dec(r.base).div(denominator);
+}
 // This is a calendar allocation for display. Monthly salary is calculated only by calculate().
 export function dailyEarnings(r:Rules,all:Shift[],cycles:Record<string,Cycle>={}):Map<string,DailyEarning>{
   const shifts=[...new Map(all.filter(s=>!s.draft).map(s=>[s.id,s])).values()];
@@ -171,9 +175,7 @@ export function dailyEarnings(r:Rules,all:Shift[],cycles:Record<string,Cycle>={}
     if(nonWork(s))continue;
     const segments=analyses.get(s.id)!.segments,hours=sum(segments.map(x=>x.hours));
     if(!hours.gt(0))continue;
-    const c=cycles[monthOf(s.date,r.cycleEnd)],denominator=c?.denominator||r.baseDays;
-    const actualDays=c?.mode==='partial'?c.paidDays:c?.expectedDays||denominator;
-    const base=c?.baseActual!==undefined&&c.baseActual!==''?(dec(actualDays).gt(0)?dec(c.baseActual).div(actualDays):dec(0)):c?.mode==='manual'?dec(0):dec(r.base).div(denominator);
+    const c=cycles[monthOf(s.date,r.cycleEnd)],base=dailyBase(r,c);
     // Calendar amounts allocate normal/paid-holiday hours only; rest-day OT has no extra daily base.
     const paidNormal=sum(segments.map(x=>dec(x.normal).plus(x.type==='holiday'?x.hours:'0')));
     day.base=r.fuzhouPolicy?D.min(base,day.base.plus(base.mul(D.min(paidNormal,r.standardHours)).div(r.standardHours))):base;
@@ -186,9 +188,38 @@ export function dailyEarnings(r:Rules,all:Shift[],cycles:Record<string,Cycle>={}
   return new Map([...days].map(([date,d])=>[date,{base:money(d.base,r.rounding),overtime:money(d.overtime,r.rounding),allowances:money(d.allowances,r.rounding),total:money(d.base.plus(d.overtime).plus(d.allowances),r.rounding),hours:d.hours.toString(),pending:d.pending}]));
 }
 
+export interface DailyWageLine {name:string;formula:string;amount:string}
+export function dailyWageDetails(date:string,r:Rules,all:Shift[],cycles:Record<string,Cycle>={}){
+  const earning=dailyEarnings(r,all,cycles).get(date);
+  if(!earning)return undefined;
+  const shifts=[...new Map(all.filter(s=>s.date===date&&!s.draft&&!nonWork(s)).map(s=>[s.id,s])).values()];
+  const analyses=analyzeShifts(shifts,r),segments=shifts.flatMap(s=>analyses.get(s.id)!.segments),lines:DailyWageLine[]=[];
+  const paidNormal=D.min(r.standardHours,sum(segments.map(s=>dec(s.normal).plus(s.type==='holiday'?s.hours:'0'))));
+  if(dec(earning.base).gt(0))lines.push({name:segments.some(s=>s.type==='holiday')?'基本工资分摊（带薪节日）':'正常工时工资',formula:r.fuzhouPolicy?`${paidNormal.toString()} 小时 × ${dailyBase(r,cycles[monthOf(date,r.cycleEnd)]).div(r.standardHours).toFixed(5)} 元/小时`:'按本周期日工资分母折算',amount:earning.base});
+  for(const [type,name,multiplier] of [['normal','平日加班费',r.normalRate],['rest','休息日加班费',r.restRate],['holiday','法定节假日加班费',r.holidayRate]] as const){
+    const group=segments.filter(s=>s.type===type),hours=sum(group.map(s=>s.overtime));
+    if(hours.gt(0))lines.push({name,formula:`${hours.toString()} 小时 × ${hourly(r).toFixed(5)} 元 × ${multiplier} 倍`,amount:money(sum(group.map(s=>s.raw)),r.rounding)});
+  }
+  const meals=new Map<string,{values:string[]}>();
+  for(const s of shifts){
+    const out=analyses.get(s.id)!;if(!sum(out.segments.map(seg=>seg.hours)).gt(0))continue;
+    const add=(name:string,value:string)=>{const group=meals.get(name)??{values:[]};group.values.push(value);meals.set(name,group);};
+    if(s.dayMeal)add('白班餐补',r.dayMeal);
+    if(s.nightAllowance&&(!r.fuzhouPolicy||s.allowanceConfirmed&&s.nightAmount!==''||isLateMealEligible(s,out.segments.some(seg=>dec(seg.overtime).gt(0)))))add(s.type==='night'?'夜班餐补':'晚间加班餐补',s.nightAmount||r.night);
+  }
+  for(const [name,group] of meals)lines.push({name,formula:new Set(group.values).size===1?`${group.values.length} 次 × ${group.values[0]} 元`:'按各班实际餐补合计',amount:money(sum(group.values),r.rounding)});
+  const unknown=sum(segments.filter(s=>s.type==='unknown').map(s=>s.hours)),compensated=sum(segments.filter(s=>s.type==='compensated').map(s=>s.hours));
+  if(unknown.gt(0))lines.push({name:'待确认工时',formula:`${unknown.toString()} 小时，类型未确认，暂未计加班费`,amount:'0.00'});
+  if(compensated.gt(0))lines.push({name:'已补休工时',formula:`${compensated.toString()} 小时，不另计休息日双倍加班费`,amount:'0.00'});
+  const difference=dec(earning.total).minus(sum(lines.map(l=>l.amount)));
+  if(!difference.isZero())lines.push({name:'分币取整差额',formula:'合计保留精度后取整到分',amount:money(difference)});
+  const types=[...new Set(segments.map(s=>s.type))];
+  return {date,earning,lines,basis:types.map(t=>({normal:'普通工作日',rest:'休息日 · 未补休',holiday:'法定节假日',compensated:'已补休',unknown:'类型待确认'})[t]).join(' / ')||'未录入工作时段'};
+}
+
 export function comparePayslip(result:PayResult,payslip:Payslip){
   return payslip.rows.map(row=>{
-    const matching=result.items.filter(i=>i.id===row.key||(row.key==='ot-holiday'&&i.id.startsWith('ot-holiday-'))||(row.key==='ot-normal'&&i.id.startsWith('ot-normal-'))||(row.key==='ot-rest'&&i.id.startsWith('ot-rest-'))||(row.key==='day-meal'&&i.id.startsWith('meal-')&&i.id!=='meal-month'));
+    const matching=result.items.filter(i=>i.id===row.key||(row.key==='ot-holiday'&&i.id.startsWith('ot-holiday-'))||(row.key==='ot-normal'&&i.id.startsWith('ot-normal-'))||(row.key==='ot-rest'&&i.id.startsWith('ot-rest-'))||(row.key==='night-meal'&&i.id.startsWith('night-'))||(row.key==='day-meal'&&i.id.startsWith('meal-')&&i.id!=='meal-month'));
     const expected=money(sum(matching.map(i=>i.amount)));
     const difference=money(dec(row.amount||'0').minus(expected));
     return {...row,expected,difference,reason:dec(difference).isZero()?'与当前计算一致':row.key.startsWith('ot-')?'核对计薪工时、加班类型和补休情况':row.key==='base'?'核对计薪天数及折算分母':row.key.startsWith('deduction')?'核对缴费基数、费率与实际扣款':'核对本期资格、实际金额和发放方式'};

@@ -5,17 +5,18 @@ import { shiftSchema, shiftTypes, shiftLabels, otTypes, otLabels, sourceLabels }
 import { daysIn, shiftMonth, nextDate, period } from '../domain/dates';
 import { newShift, quickShift } from '../domain/seed';
 import type { QuickType } from '../domain/seed';
-import { splitShift, analyzeShifts, dailyEarnings, hourly, sum, money, nonWork, validateAttendance } from '../domain/engine';
-import type { DailyEarning } from '../domain/engine';
+import { splitShift, analyzeShifts, dailyEarnings, dailyWageDetails, sum, money, nonWork, validateAttendance } from '../domain/engine';
+import { DailyPayDetails } from './DailyPayDetails';
 import { Badge, Field, Num, Toggle, Modal, Notice, currency, prettyHours } from './ui';
 export type Commit=(action:string,note:string,update:(s:State)=>State)=>boolean;
 
-function ShiftEditor({shift,r,others,onSave,onDelete,onClose}:{shift:Shift;r:Rules;others:Shift[];onSave:(s:Shift)=>void;onDelete:()=>void;onClose:()=>void}){
+function ShiftEditor({shift,r,others,cycles,onSave,onDelete,onClose}:{shift:Shift;r:Rules;others:Shift[];cycles:Record<string,Cycle>;onSave:(s:Shift)=>void;onDelete:()=>void;onClose:()=>void}){
   const [s,set]=useState(()=>({...shift,source:shift.ruleVersion!==r.version&&shift.source==='payslip'?'pending' as const:shift.source,allowanceConfirmed:shift.allowanceConfirmed&&(shift.ruleVersion===r.version||shift.nightAmount!=='')})),[error,setError]=useState('');const field=<K extends keyof Shift>(key:K,value:Shift[K])=>set(v=>({...v,[key]:value}));
   const preview=(candidate:Shift)=>analyzeShifts([...others.filter(x=>x.id!==s.id),{...candidate,draft:false}],r).get(s.id)!;
   let output:ReturnType<typeof splitShift>={segments:[],warnings:[]};let calcError='';try{output=preview(s);}catch(e){calcError=(e as Error).message;try{output=preview({...s,overrides:Object.fromEntries(Object.entries(s.overrides).map(([day,o])=>[day,{...o,hours:''}]))});}catch{/* Keep invalid times editable until corrected. */}}
+  let wageDetails:ReturnType<typeof dailyWageDetails>;try{wageDetails=dailyWageDetails(s.date,r,[...others.filter(x=>x.id!==s.id),{...s,draft:false}],cycles);}catch{/* Invalid draft times remain editable. */}
   const save=()=>{const parsed=shiftSchema.safeParse({...s,ruleVersion:r.version});if(!parsed.success){setError(parsed.error.issues.map(i=>i.message).join('；'));return;}if(calcError){setError(calcError);return;}onSave(parsed.data);};
-  return <Modal title={s.draft?'排班草稿 · 确认后才计薪':'考勤记录与计算明细'} onClose={onClose} wide><div className="modal-body">
+  return <Modal title={s.draft?'排班草稿 · 确认后才计薪':'考勤记录与计算明细'} onClose={onClose} wide><div className="modal-body"><DailyPayDetails details={wageDetails}/>
     <div className="form-grid"><Field label="归属日期（上班日期）"><input type="date" value={s.date} onChange={e=>{const date=e.target.value;if(date)set(v=>({...v,date,start:date+v.start.slice(10),end:(v.end.slice(0,10)!==v.date?nextDate(date):date)+v.end.slice(10),overrides:{}}));}}/></Field><Field label="考勤类型"><select value={s.type} onChange={e=>{const type=e.target.value as Shift['type'];const fresh=newShift(s.date,r,type);set(v=>({...v,type,start:fresh.start,end:fresh.end,nightAllowance:fresh.nightAllowance,overrides:{},ot:type==='restWork'?'rest':type==='compWork'?'compensated':type==='holiday'?'holiday':v.ot}));}}>{shiftTypes.map(t=><option value={t} key={t}>{shiftLabels[t]}</option>)}</select></Field>
     {!nonWork(s)&&<><Field label="实际上班"><input type="datetime-local" value={s.start} onChange={e=>{field('start',e.target.value);field('date',e.target.value.slice(0,10));}}/></Field><Field label="实际下班（夜班选次日）"><input type="datetime-local" value={s.end} onChange={e=>field('end',e.target.value)}/></Field><Field label="吃饭分钟"><Num value={s.mealMinutes} onChange={v=>field('mealMinutes',v)}/></Field><Field label="吃饭开始：上班后第几分钟"><Num value={s.mealOffset} onChange={v=>field('mealOffset',v)}/></Field><Field label="手动计薪工时" hint="填写后优先使用，不再扣除吃饭或短休息。"><Num value={s.paidHours} onChange={v=>field('paidHours',v)} placeholder="留空由时间计算"/></Field><Field label="手动加班类型" hint="开启日历时按标准排班自动判断，详见下方分段；关闭日历可手动指定。"><select value={s.ot} onChange={e=>field('ot',e.target.value as Shift['ot'])}>{otTypes.map(t=><option value={t} key={t}>{otLabels[t]}</option>)}</select></Field></>}
     </div>
@@ -26,19 +27,19 @@ function ShiftEditor({shift,r,others,onSave,onDelete,onClose}:{shift:Shift;r:Rul
     {(error||calcError)&&<Notice>{error||calcError}</Notice>}</div><footer className="modal-footer"><button className="button danger ghost" onClick={onDelete}><Trash2 size={16}/>删除记录</button><div><button className="button secondary" onClick={onClose}>取消</button><button className="button primary" onClick={save}><Check size={16}/>保存记录</button></div></footer></Modal>;
 }
 
-function QuickEditor({date,record,r,cycles,onSave,onDelete,onDetails,onClose}:{date:string;record?:Shift;r:Rules;cycles:Record<string,Cycle>;onSave:(s:Shift)=>void;onDelete:()=>void;onDetails:(s:Shift)=>void;onClose:()=>void}){
+function QuickEditor({date,record,r,cycles,allShifts,onSave,onDelete,onDetails,onClose}:{date:string;record?:Shift;r:Rules;cycles:Record<string,Cycle>;allShifts:Shift[];onSave:(s:Shift)=>void;onDelete:()=>void;onDetails:(s:Shift)=>void;onClose:()=>void}){
   const [day,setDay]=useState(date),[type,setType]=useState<QuickType>(record?.type==='night'?'night':record?.type==='rest'?'rest':'day');
   const [hours,setHours]=useState(()=>record&&!nonWork(record)?sum(splitShift({...record,draft:false},r).segments.map(x=>x.hours)).toString():'12');
   const [error,setError]=useState('');
   const candidate=()=>quickShift(day,r,type,hours,record);
-  let earning:DailyEarning|undefined;
-  try{earning=dailyEarnings(r,[{...candidate(),draft:false}],cycles).get(day);}catch{/* Incomplete hours stay editable; saving displays validation errors. */}
+  let wageDetails:ReturnType<typeof dailyWageDetails>;
+  try{wageDetails=dailyWageDetails(day,r,[...allShifts.filter(s=>s.id!==record?.id),{...candidate(),draft:false}],cycles);}catch{/* Incomplete hours stay editable; saving displays validation errors. */}
   return <Modal title={record?'修改当天工时':'快速录入'} onClose={onClose}><div className="modal-body quick-editor">
+    <DailyPayDetails details={wageDetails}/>
     <Field label="日期"><input type="date" value={day} onChange={e=>setDay(e.target.value)}/></Field>
     <div className="shift-picker" role="group" aria-label="班次选择">{(['day','night','rest'] as const).map(t=><button key={t} className={type===t?'selected':''} aria-pressed={type===t} onClick={()=>setType(t)}>{t==='day'?<Sun size={20}/>:t==='night'?<Moon size={20}/>:<Clock3 size={20}/>}<strong>{t==='day'?'白班':t==='night'?'夜班':'休息'}</strong><small>{t==='day'?'08:00 开始':t==='night'?'20:00 开始':'不计工时'}</small></button>)}</div>
     {type!=='rest'&&<div className="hours-entry"><Field label="今天上几个小时"><input type="number" min="0.5" max="24" step="0.5" inputMode="decimal" value={hours} onChange={e=>setHours(e.target.value)}/></Field><span>小时</span><p>正常一班填 12，提前下班改这里。吃饭不扣工时。</p></div>}
     <p className="muted small">{r.split?'此账本按实际日期分别判断倍率。':`整班按 ${day} 的工资标准，过零点不换倍率。`}补休或个人排班可在详细设置修改。</p>
-    {earning&&type!=='rest'&&<div className="inset"><div className="section-heading"><strong>这班怎么算</strong><strong>{currency(earning.total)}</strong></div><p className="small">正常工资 {currency(earning.base)} + 加班费 {currency(earning.overtime)} + 本班补贴 {currency(earning.allowances)}</p><p className="muted small">时薪基数 = {r.otBase} ÷ {r.otDays} ÷ {r.standardHours} ≈ {hourly(r).toFixed(5)} 元；加班另乘倍率。以上为税前预计，最后按分取整。</p></div>}
     {error&&<Notice>{error}</Notice>}
     <button className="text-button" onClick={()=>{try{onDetails(candidate());}catch(e){setError((e as Error).message);}}}>详细设置与计算明细 →</button>
   </div><footer className="modal-footer">{record?<button className="button danger ghost" onClick={onDelete}><Trash2 size={15}/>删除记录</button>:<button className="button secondary" onClick={onClose}>取消</button>}<button className="button primary" onClick={()=>{try{onSave(candidate());}catch(e){setError((e as Error).message);}}}><Check size={16}/>保存记录</button></footer></Modal>;
@@ -140,8 +141,8 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
       <div className="section-heading"><h2>{view} · 已录入记录</h2><Badge>{state.shifts.filter(s=>s.date.startsWith(view)).length} 条</Badge></div>
       <div className="records-list">{state.shifts.filter(s=>s.date.startsWith(view)).sort((a,b)=>a.start.localeCompare(b.start)).map(s=><button className="record-row" key={s.id} onClick={()=>openRecord(s)}><strong>{s.date}</strong><span>{shiftLabels[s.type]}</span><span className="muted">{nonWork(s)?'不生成加班费':s.start.slice(11)+' — '+s.end.slice(11)}</span><Badge tone={s.draft?'amber':s.source==='payslip'?'green':'muted'}>{s.draft?'草稿':sourceLabels[s.source]}</Badge><span className="truncate muted">{s.note}</span></button>)}</div>
     </section>
-    {quick&&<QuickEditor key={quick.record?.id??quick.date} date={quick.date} record={quick.record} r={r} cycles={state.cycles} onClose={()=>setQuick(null)} onSave={save} onDelete={()=>{if(quick.record)deleteRecord(quick.record);}} onDetails={s=>{setQuick(null);setEdit(s);}}/>}
-    {edit&&<ShiftEditor key={edit.id} shift={edit} r={r} others={state.shifts} onSave={save} onClose={()=>setEdit(null)} onDelete={()=>deleteRecord(edit)}/>}
+    {quick&&<QuickEditor key={quick.record?.id??quick.date} date={quick.date} record={quick.record} r={r} cycles={state.cycles} allShifts={state.shifts} onClose={()=>setQuick(null)} onSave={save} onDelete={()=>{if(quick.record)deleteRecord(quick.record);}} onDetails={s=>{setQuick(null);setEdit(s);}}/>}
+    {edit&&<ShiftEditor key={edit.id} shift={edit} r={r} others={state.shifts} cycles={state.cycles} onSave={save} onClose={()=>setEdit(null)} onDelete={()=>deleteRecord(edit)}/>}
     {batch&&<Modal title="批量生成排班草稿" onClose={()=>setBatch(false)}><div className="modal-body"><Notice>只生成草稿，跳过已有记录的日期。每条草稿需核实后才计薪。</Notice><div className="form-grid"><Field label="开始日期"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></Field><Field label="结束日期"><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></Field><Field label="班次"><select value={batchType} onChange={e=>setBatchType(e.target.value as Shift['type'])}>{(['day','night','rest'] as const).map(t=><option value={t} key={t}>{shiftLabels[t]}</option>)}</select></Field></div>{error&&<Notice>{error}</Notice>}</div><footer className="modal-footer"><button className="button primary" onClick={createBatch}>生成草稿</button></footer></Modal>}
   </>;
 }

@@ -90,3 +90,21 @@
 .advanced-rules>summary{padding:18px 24px;background:var(--surface,transparent);border:1px solid var(--border);border-radius:12px}
 .deduction-details{margin-top:28px;padding:16px;border:1px solid var(--border);border-radius:12px}
 @media(max-width:700px){.policy-summary{grid-template-columns:1fr;gap:22px}.policy-summary>div+div{border-top:1px solid var(--border);padding-top:20px}.policy-summary strong{font-size:25px}.policy-details .tips{padding-left:20px}}
+
+.daily-pay-details{border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:20px;background:var(--cream)}
+.daily-pay-details>.section-heading{margin-bottom:5px}
+.daily-pay-lines{margin-top:14px}
+.daily-pay-line{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)}
+.daily-pay-line>div{min-width:0}.daily-pay-line>strong{white-space:nowrap;font-variant-numeric:tabular-nums}
+.daily-pay-line small{display:block;color:var(--muted);font-size:11px;line-height:1.7;margin-top:5px;overflow-wrap:anywhere}
+.daily-pay-total{display:flex;justify-content:space-between;align-items:center;padding:17px 0 12px}
+.daily-pay-total>strong{font-size:26px;color:var(--deep);font-variant-numeric:tabular-nums}
+.monthly-section-title{display:flex;justify-content:space-between;align-items:center;padding:15px 0;margin-top:8px;gap:12px;border-top:1px solid var(--border)}
+.monthly-section-title>strong{font-variant-numeric:tabular-nums;font-size:18px;white-space:nowrap}
+.monthly-additions{padding:16px 0 20px;display:grid;gap:12px}.monthly-additions>button{justify-self:start}
+.monthly-empty{padding:10px 0 20px}.monthly-net{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:20px 0 8px;border-top:1px solid var(--border)}
+.monthly-net small{display:block;color:var(--muted);font-size:11px;line-height:1.8;margin-top:7px}.monthly-net>strong{font-size:24px;white-space:nowrap;color:var(--deep)}
+.benefit-row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:14px;background:transparent;border:0;border-bottom:1px solid var(--border);padding:14px 0 18px;text-align:left;margin-bottom:14px}
+.benefit-row small{display:block;color:var(--muted);font-size:11px;line-height:1.7;margin-top:7px}.benefit-row>strong{white-space:nowrap;font-size:20px}
+.reconcile-totals{display:flex;flex-wrap:wrap;gap:14px}.reconcile-totals span{font-size:12px;color:var(--muted)}.reconcile-totals strong{margin-left:6px;color:var(--deep)}
+@media(max-width:600px){.daily-pay-details{padding:14px}.daily-pay-line{gap:10px}.monthly-net{align-items:flex-start;flex-direction:column}.monthly-net>strong{align-self:flex-end}.monthly-section-title>strong{font-size:16px}.ledger-card .ledger-table td,.ledger-card .ledger-table th{padding-left:5px;padding-right:5px}.ledger-card .ledger-table td:nth-child(3){font-size:13px}.ledger-card .badge{font-size:9px;padding:4px 5px}.ledger-card>.section-heading{align-items:flex-start;flex-wrap:wrap}.ledger-card .filter-select{max-width:140px}}
