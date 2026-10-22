@@ -8,7 +8,7 @@ import type { QuickType } from '../domain/seed';
 import { splitShift, analyzeShifts, dailyEarnings, dailyWageDetails, sum, money, nonWork, validateAttendance } from '../domain/engine';
 import { DailyPayDetails } from './DailyPayDetails';
 import { Badge, Field, Num, Toggle, Modal, Notice, currency, prettyHours } from './ui';
-export type Commit=(action:string,note:string,update:(s:State)=>State)=>boolean;
+export type Commit=(action:string,note:string,update:(s:State)=>State)=>Promise<boolean>;
 
 function ShiftEditor({shift,r,others,cycles,onSave,onDelete,onClose}:{shift:Shift;r:Rules;others:Shift[];cycles:Record<string,Cycle>;onSave:(s:Shift)=>void;onDelete:()=>void;onClose:()=>void}){
   const [s,set]=useState(()=>({...shift,source:shift.ruleVersion!==r.version&&shift.source==='payslip'?'pending' as const:shift.source,allowanceConfirmed:shift.allowanceConfirmed&&(shift.ruleVersion===r.version||shift.nightAmount!=='')})),[error,setError]=useState('');const field=<K extends keyof Shift>(key:K,value:Shift[K])=>set(v=>({...v,[key]:value}));
@@ -55,8 +55,8 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
   const drafts=state.shifts.filter(s=>s.draft&&s.date>=bounds.start&&s.date<=bounds.end);
   const analyses=useMemo(()=>analyzeShifts(state.shifts,r),[state.shifts,r]);
   const earnings=useMemo(()=>dailyEarnings(r,state.shifts,state.cycles),[r,state.shifts,state.cycles]);
-  const save=(s:Shift)=>{
-    const success=commit('保存考勤',s.note||'用户修改班次',old=>{
+  const save=async(s:Shift)=>{
+    const success=await commit('保存考勤',s.note||'用户修改班次',old=>{
       const shifts=[...old.shifts.filter(x=>x.id!==s.id),s];
       validateAttendance(shifts);splitShift(s,old.rules);return {...old,shifts};
     });
@@ -68,18 +68,18 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
     else setEdit(s);
   };
   const selectType=(t:QuickType)=>{setQuickType(t);try{localStorage.setItem('shift-pay:quick-type',t);}catch{/* Financial data storage reports its own errors. */}};
-  const tapDate=(day:string)=>{
+  const tapDate=async(day:string)=>{
     const record=state.shifts.find(s=>s.date===day);
     if(record){openRecord(record);return;}
-    try{save(quickShift(day,r,quickType,quickHours));}catch(e){setError((e as Error).message);}
+    try{await save(quickShift(day,r,quickType,quickHours));}catch(e){setError((e as Error).message);}
   };
-  const createBatch=()=>{
+  const createBatch=async()=>{
     if(!start||!end||start>end||new Date(end).getTime()-new Date(start).getTime()>62*86400000){setError('请选择不超过 63 天的有效日期范围。');return;}
     const dates:string[]=[];for(let d=start;d<=end;d=nextDate(d))dates.push(d);
     const available=dates.filter(d=>!state.shifts.some(s=>s.date===d));
-    if(commit('生成排班草稿',start+' 至 '+end+'；跳过已有日期',s=>({...s,shifts:[...s.shifts,...available.map(date=>({...newShift(date,r,batchType),draft:true,note:'批量排班草稿；须核实后计薪。'}))]})))setBatch(false);
+    if(await commit('生成排班草稿',start+' 至 '+end+'；跳过已有日期',s=>({...s,shifts:[...s.shifts,...available.map(date=>({...newShift(date,r,batchType),draft:true,note:'批量排班草稿；须核实后计薪。'}))]})))setBatch(false);
   };
-  const deleteRecord=(s:Shift)=>{if(commit('删除考勤',s.note||'用户删除记录',old=>({...old,shifts:old.shifts.filter(x=>x.id!==s.id)}))){setEdit(null);setQuick(null);}};
+  const deleteRecord=async(s:Shift)=>{if(await commit('删除考勤',s.note||'用户删除记录',old=>({...old,shifts:old.shifts.filter(x=>x.id!==s.id)}))){setEdit(null);setQuick(null);}};
   return <>
     <div className="page-title">
       <div><span className="eyebrow">ATTENDANCE</span><h1>今天这一班，点一下就记好</h1><p>选白班或夜班，再点日期。默认 12 小时，吃饭不扣工时。</p></div>

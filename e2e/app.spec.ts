@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readLedger, writeLedger } from './storageHelpers';
 const nav=(p:import('@playwright/test').Page,title:string)=>p.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:title,exact:true}).click();
 test('深浅模式切换并保留偏好',async({page})=>{
   await page.goto('/');await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
@@ -57,21 +58,21 @@ test('福州参考扣款内置，规则默认折叠，实际扣款逐项覆盖',
 });
 
 test('旧浏览器账本自动升级一次，原有历史快照保留',async({page})=>{
-  await page.goto('/');await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('shift-pay:v1')!);delete s.rules.fuzhouPolicy;s.rules.version=1;s.rules.baseDays='23';s.rules.system='unknown';s.audit=[];localStorage.setItem('shift-pay:v1',JSON.stringify(s));});
-  const oldSnapshot=await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).snapshots);await page.reload();
-  await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).rules.baseDays)).toBe('21.75');
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).snapshots)).toEqual(oldSnapshot);
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='启用福州法定标准').length)).toBe(1);
-  await page.reload();expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='启用福州法定标准').length)).toBe(1);
+  await page.goto('/');await expect(page.getByTestId('net')).toBeVisible();
+  const s=await readLedger(page);delete s.rules.fuzhouPolicy;s.rules.version=1;s.rules.baseDays='23';s.rules.system='unknown';s.audit=[];
+  const oldSnapshot=s.snapshots;await writeLedger(page,s);await page.reload();await expect(page.getByTestId('net')).toBeVisible();
+  expect((await readLedger(page)).rules.baseDays).toBe('21.75');expect((await readLedger(page)).snapshots).toEqual(oldSnapshot);
+  expect((await readLedger(page)).audit.filter(x=>x.action==='启用福州法定标准')).toHaveLength(1);
+  await page.reload();await expect(page.getByTestId('net')).toBeVisible();expect((await readLedger(page)).audit.filter(x=>x.action==='启用福州法定标准')).toHaveLength(1);
 });
 
 test('已有账本刷新后改用上班日标准，10月6日夜班全部用6日倍率',async({page})=>{
-  await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/}).click();await page.locator('[data-date="2026-10-10"]').click();
-  const oldSnapshot=await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('shift-pay:v1')!);delete s.startDateBasisApplied;s.rules.split=true;s.rules.version=2;localStorage.setItem('shift-pay:v1',JSON.stringify(s));return s.snapshots;});
+  await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/}).click();await page.locator('[data-date="2026-10-10"]').click();await expect(page.locator('[data-date="2026-10-10"]')).toContainText('12 小时');
+  const s=await readLedger(page);delete s.startDateBasisApplied;s.rules.split=true;s.rules.version=2;const oldSnapshot=s.snapshots;await writeLedger(page,s);
   await page.reload();await nav(page,'考勤日历');await expect(page.locator('[data-date="2026-10-10"] .daily-earnings strong')).toHaveText('¥201.61');
   await page.locator('[data-date="2026-10-06"]').click();await expect(page.locator('[data-date="2026-10-06"] .daily-earnings strong')).toHaveText('¥327.76');await page.locator('[data-date="2026-10-06"]').click();const d=page.getByRole('dialog');await expect(d).toContainText('整班按 2026-10-06 的工资标准');await expect(d.locator('.daily-pay-line').filter({hasText:'休息日加班费'})).toContainText('¥302.76');await expect(d.locator('.daily-pay-line').filter({hasText:'夜班餐补'})).toContainText('¥25.00');await d.getByRole('button',{name:'关闭',exact:true}).click();
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).snapshots)).toEqual(oldSnapshot);await page.reload();
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='整班按上班日计薪').length)).toBe(1);
+  expect((await readLedger(page)).snapshots).toEqual(oldSnapshot);await page.reload();await expect(page.getByTestId('net')).toBeVisible();
+  expect((await readLedger(page)).audit.filter(x=>x.action==='整班按上班日计薪')).toHaveLength(1);
 });
 
 test('日明细列公式，月工资条分收入扣款和饭卡，绩效修改不重复相加',async({page})=>{

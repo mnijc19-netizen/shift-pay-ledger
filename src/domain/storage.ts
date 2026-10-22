@@ -4,10 +4,15 @@ import { defaultRules, initialState } from './seed';
 import { statutoryCalendar2026 } from './policy';
 import { calculate, splitShift, validateAttendance } from './engine';
 import { period } from './dates';
+import { compactAuditEntries } from './audit';
+import { CURRENT_KEY, LEGACY_BACKUP_KEY, readStoredRecord, writeStoredLedger } from './browserStore';
 export const STORAGE_KEY='shift-pay:v1';
 export function parseBackup(raw:string):State{
   if(raw.length>20*1024*1024)throw new Error('备份超过 20MB，请检查文件。');
-  const state=stateSchema.parse(JSON.parse(raw));
+  return validateLedger(JSON.parse(raw));
+}
+function validateLedger(value:unknown):State{
+  const state=stateSchema.parse(value);
   validateAttendance(state.shifts);
   for(const [month,cycle] of Object.entries(state.cycles)){if(month!==cycle.month)throw new Error('周期键与周期月份不一致');calculate(state.rules,cycle,state.shifts);}
   for(const s of state.shifts)splitShift(s,state.rules);
@@ -50,12 +55,37 @@ export function upgradeMealCard(state:State):State{
   return state;
 }
 export const upgradeSavedState=(state:State)=>upgradeMealCard(upgradeStartDateBasis(upgradeFuzhouPolicy(state)));
-export function load():{state:State;error:string;raw:string}{
-  let raw='';
-  try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?upgradeSavedState(parseBackup(raw)):initialState(),error:'',raw:''};}
-  catch(e){return {state:initialState(),error:'本地数据读取失败，原始内容未覆盖。请先导出原始数据，再通过备份恢复。'+String(e),raw};}
+export interface LoadResult {state:State;error:string;raw:string}
+export function storageErrorMessage(error:unknown){
+  const e=error as {name?:string;message?:string};
+  return e?.name==='QuotaExceededError'?'设备可用存储空间不足，本次没有保存。已保存记录仍保留，请先导出备份，释放空间后重试。':`本地数据库保存失败，本次没有改动已保存记录：${e?.message||String(error)}`;
 }
-export function persist(state:State){localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}
+export async function load():Promise<LoadResult>{
+  let raw='';
+  try{
+    const stored=await readStoredRecord(CURRENT_KEY);
+    if(stored!==undefined){
+      raw=JSON.stringify(stored);const state=upgradeSavedState(validateLedger(stored));state.audit=compactAuditEntries(state.audit);
+      if(JSON.stringify(state)!==raw)await persist(state);
+      return {state,error:'',raw:''};
+    }
+    raw=localStorage.getItem(STORAGE_KEY)||'';
+    const state=raw?upgradeSavedState(parseBackup(raw)):initialState();state.audit=compactAuditEntries(state.audit);
+    // Current ledger and the byte-for-byte legacy backup commit atomically, before releasing the old key.
+    await writeStoredLedger(state,raw||undefined);
+    if(raw)try{if(localStorage.getItem(STORAGE_KEY)===raw)localStorage.removeItem(STORAGE_KEY);}catch{/* The committed database is authoritative; an old duplicate can remain. */}
+    return {state,error:'',raw:''};
+  }catch(error){
+    if(!raw)try{raw=localStorage.getItem(STORAGE_KEY)||'';}catch{/* A blocked storage API must not overwrite existing data. */}
+    return {state:initialState(),error:'本地账本暂时无法打开，原记录未覆盖。'+storageErrorMessage(error),raw};
+  }
+}
+export async function persist(state:State){await writeStoredLedger(state);}
+export async function exportLegacyBackup(){
+  const raw=await readStoredRecord(LEGACY_BACKUP_KEY);
+  if(typeof raw!=='string')throw new Error('没有旧版迁移备份；请使用完整备份导出当前账本。');
+  download('班薪记-升级前原始备份.json',raw);
+}
 export function download(name:string,text:string,type='application/json'){
   const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
