@@ -1,6 +1,7 @@
-import { stateSchema } from './model';
+import { stateSchema, uid } from './model';
 import type { State, PayResult, Shift, Payslip } from './model';
-import { initialState } from './seed';
+import { defaultRules, initialState } from './seed';
+import { statutoryCalendar2026 } from './policy';
 import { calculate, splitShift, validateAttendance } from './engine';
 import { period } from './dates';
 export const STORAGE_KEY='shift-pay:v1';
@@ -14,12 +15,28 @@ export function parseBackup(raw:string):State{
   unique(state.rules.calendar.map(x=>x.date),'日历日期');unique(state.payslips.map(x=>x.month),'工资条周期');
   unique(state.payslips.map(x=>x.id),'工资条');unique(state.snapshots.map(x=>x.id),'快照');
   for(const c of Object.values(state.cycles)){unique(c.extras.map(x=>x.id),'收入');unique(c.deductions.map(x=>x.id),'扣款');}
+  for(const c of Object.values(state.cycles))unique(c.deductions.filter(x=>['养老保险','医疗保险','失业保险','住房公积金'].includes(x.name)).map(x=>x.name),'五险一金项目');
   for(const p of state.payslips){unique(p.rows.map(x=>x.id),'工资条项目');const keys=p.rows.map(x=>x.key).filter(Boolean);unique(keys,'工资条映射');}
+  return state;
+}
+export function upgradeFuzhouPolicy(state:State):State{
+  if(state.rules.fuzhouPolicy)return state;
+  const before=JSON.stringify({rules:state.rules,cycles:state.cycles}),previous=structuredClone(state.rules);
+  for(const cycle of Object.values(state.cycles)){
+    if(cycle.month<'2026-10'){
+      // Freeze the pre-update result for completed historical periods before changing defaults.
+      if(!state.snapshots.some(s=>s.month===cycle.month))state.snapshots.push({id:uid(),month:cycle.month,savedAt:new Date().toISOString(),rules:structuredClone(previous),cycle:structuredClone(cycle),shifts:structuredClone(state.shifts.filter(s=>{const p=period(cycle.month,previous.cycleEnd);return s.date>=p.start&&s.date<=p.end;})),result:calculate(previous,cycle,state.shifts),payslip:structuredClone(state.payslips.find(p=>p.month===cycle.month))});
+      cycle.denominator ||= previous.baseDays;
+    }else cycle.insuranceMode='minimum';
+  }
+  const keys=['base','otBase','otDays','standardHours','baseDays','normalRate','restRate','holidayRate','system','mealMinutes','deductShort','split'] as const;
+  state.rules={...state.rules,...Object.fromEntries(keys.map(k=>[k,defaultRules[k]])),fuzhouPolicy:true,version:previous.version+1,updatedAt:new Date().toISOString(),calendar:[...statutoryCalendar2026.filter(d=>!previous.calendar.some(p=>p.date===d.date)),...previous.calendar]};
+  state.audit.push({id:uid(),at:new Date().toISOString(),action:'启用福州法定标准',note:'2026-10-22核验；当前预测按2195元、五天八小时、21.75天及最低个人缴费参考；实际扣款和历史快照保留。',before,after:JSON.stringify({rules:state.rules,cycles:state.cycles})});
   return state;
 }
 export function load():{state:State;error:string;raw:string}{
   let raw='';
-  try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?parseBackup(raw):initialState(),error:'',raw:''};}
+  try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?upgradeFuzhouPolicy(parseBackup(raw)):initialState(),error:'',raw:''};}
   catch(e){return {state:initialState(),error:'本地数据读取失败，原始内容未覆盖。请先导出原始数据，再通过备份恢复。'+String(e),raw};}
 }
 export function persist(state:State){localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}

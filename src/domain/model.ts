@@ -14,7 +14,7 @@ export const shiftLabels = {day:'白班',night:'夜班',short:'短班 / 清洁',
 export const sourceLabels = {auto:'自动计算',manual:'手动录入',payslip:'工资条确认',pending:'待核验'};
 export const calendarEntrySchema = z.object({date, type:z.enum(dayTypes), label:z.string(), source:z.string()});
 export const rulesSchema = z.object({
-  version:z.number().int().positive(), updatedAt:z.string(), hireDate:date, employee:z.enum(['trial','regular']),
+  version:z.number().int().positive(), updatedAt:z.string(), hireDate:date, employee:z.enum(['trial','regular']), fuzhouPolicy:z.boolean().default(false),
   base:positive, otBase:positive, otDays:positive, standardHours:positive.refine(v=>Number(v)<=24), baseDays:positive,
   normalRate:numeric, restRate:numeric, holidayRate:numeric, system:z.enum(['standard','comprehensive','unknown']),
   cycleEnd:z.number().int().min(1).max(28), split:z.boolean(), rounding:z.enum(['halfUp','down']),
@@ -37,7 +37,7 @@ export const deductionNames = ['养老保险','医疗保险','失业保险','住
 export const deductionSchema = z.object({id:z.string(), name:z.string(), actual:z.union([numeric,z.literal('')]), base:z.union([numeric,z.literal('')]), rate:z.union([numeric,z.literal('')]), confirmed:z.boolean(), note:z.string()});
 export const extraSchema = z.object({id:z.string(), name:z.string().min(1), amount:numeric, confirmed:z.boolean(), method:z.enum(['cash','card','other','unknown']), source:z.enum(sourceTypes), note:z.string()});
 export const cycleSchema = z.object({
-  month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), confirmedRuleVersion:z.number().int().positive().default(1), mode:z.enum(['full','partial','manual']), expectedDays:positive, paidDays:numeric,
+  month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), confirmedRuleVersion:z.number().int().positive().default(1), insuranceMode:z.enum(['manual','minimum']).default('manual'), mode:z.enum(['full','partial','manual']), expectedDays:positive, paidDays:numeric,
   denominator:z.union([positive,z.literal('')]), baseActual:z.union([numeric,z.literal('')]), baseConfirmed:z.boolean(),
   postEnabled:z.boolean(), postConfirmed:z.boolean(), mealEnabled:z.boolean(), mealConfirmed:z.boolean(), mealDuplicateChecked:z.boolean(),
   heatEnabled:z.boolean(), heatActual:z.union([numeric,z.literal('')]), heatConfirmed:z.boolean(),

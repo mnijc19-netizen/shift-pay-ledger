@@ -5,7 +5,8 @@ import { period, monthOf, nextDate, shiftMonth, daysIn } from './dates';
 import { stateSchema, shiftSchema, rulesSchema, uid } from './model';
 import { parseBackup, csv, ledgerCsv, attendanceCsv } from './storage';
 import type { Rules, Shift } from './model';
-const rules=():Rules=>structuredClone(defaultRules);
+// Explicit legacy rules keep historical/custom-regime regressions independent of the new default.
+const rules=():Rules=>({...structuredClone(defaultRules),version:1,fuzhouPolicy:false,baseDays:'23',system:'unknown'});
 // Legacy unpaid-meal cases stay explicit; quick entry now pays the full twelve hours.
 function ordinary(day='2026-10-08',night=false){return {...newShift(day,rules(),night?'night':'day'),mealMinutes:'30',ot:'normal' as const,nightAllowance:false};}
 const amount=(s:Shift,r=rules())=>money(sum(splitShift(s,r).segments.map(x=>x.raw)),r.rounding);
@@ -77,7 +78,7 @@ describe('福利、部分周期、扣款及核对',()=>{
   it('个税不采用基数费率的貌似精确估算',()=>{const r=rules(),c=newCycle('2026-10',r);c.deductions[4]={...c.deductions[4],base:'5000',rate:'3'};expect(calculate(r,c,[]).items.some(i=>i.id==='deduction-d4')).toBe(false);});
   it('历史工资条七项核对差额全部为零',()=>{const s=initialState(),r=calculate(s.rules,s.cycles['2026-09'],s.shifts);expect(comparePayslip(r,s.payslips[0]).map(c=>c.difference)).toEqual(Array(7).fill('0.00'));});
   it('修改规则不会改写已保存历史快照',()=>{const s=initialState(),before=JSON.stringify(s.snapshots[0]);s.rules.base='3000';expect(calculate(s.rules,s.cycles['2026-09'],s.shifts).net).not.toBe('715.42');expect(JSON.stringify(s.snapshots[0])).toBe(before);expect(s.snapshots[0].result.net).toBe('715.42');});
-  it('规则版本变化后，公式计算的旧确认状态不会自动沿用',()=>{const s=initialState();s.rules.version=2;s.rules.base='3000';const r=calculate(s.rules,s.cycles['2026-09'],s.shifts);expect(r.items.find(i=>i.id==='base')?.confirmed).toBe(false);expect(r.items.find(i=>i.id.startsWith('ot-holiday'))?.confirmed).toBe(false);expect(r.items.find(i=>i.id==='performance')?.confirmed).toBe(true);expect(s.snapshots[0].result.confirmedCash).toBe('715.42');});
+  it('规则版本变化后，公式计算的旧确认状态不会自动沿用',()=>{const s=initialState();s.rules.version+=1;s.rules.base='3000';const r=calculate(s.rules,s.cycles['2026-09'],s.shifts);expect(r.items.find(i=>i.id==='base')?.confirmed).toBe(false);expect(r.items.find(i=>i.id.startsWith('ot-holiday'))?.confirmed).toBe(false);expect(r.items.find(i=>i.id==='performance')?.confirmed).toBe(true);expect(s.snapshots[0].result.confirmedCash).toBe('715.42');});
   it('改为休息后不会遗留旧班次的津贴',()=>{const r=rules(),s={...ordinary(),type:'rest' as const,dayMeal:true,nightAllowance:true};expect(calculate(r,newCycle('2026-10',r),[s]).items.some(i=>i.id.startsWith('night-')||i.id.startsWith('meal-')&&i.id!=='meal-month')).toBe(false);});
 });
 describe('持久化、备份验证与导出',()=>{

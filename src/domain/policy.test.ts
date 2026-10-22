@@ -1,0 +1,38 @@
+import { describe, it, expect } from 'vitest';
+import { defaultRules, initialState, newCycle, quickShift } from './seed';
+import { calculate, dailyEarnings, money, splitShift, sum } from './engine';
+import { insuranceReference, statutoryCalendar2026 } from './policy';
+import { parseBackup, upgradeFuzhouPolicy } from './storage';
+
+const rules=()=>structuredClone(defaultRules);
+const overtime=(date:string,type:'day'|'night'='day',hours='12')=>{const r=rules(),s=quickShift(date,r,type,hours);return money(sum(splitShift(s,r).segments.map(x=>x.raw)));};
+const minimumCycle=()=>({...newCycle('2026-10',rules()),postEnabled:false,mealEnabled:false});
+
+describe('福州标准五天八小时和法定日期',()=>{
+  it('月薪2195，日折算21.75、小时8，标准倍率1.5/2/3',()=>{expect(rules()).toMatchObject({base:'2195',otBase:'2195',baseDays:'21.75',otDays:'21.75',standardHours:'8',normalRate:'1.5',restRate:'2',holidayRate:'3',system:'standard'});});
+  it('完整2026日历有13个法定当天、6个调休工作日，无重复',()=>{expect(statutoryCalendar2026.filter(d=>d.type==='statutory')).toHaveLength(13);expect(statutoryCalendar2026.filter(d=>d.type==='makeup')).toHaveLength(6);expect(new Set(statutoryCalendar2026.map(d=>d.date)).size).toBe(statutoryCalendar2026.length);});
+  it.each([['2026-10-09','75.69'],['2026-10-11','302.76'],['2026-10-10','75.69'],['2026-10-04','302.76'],['2026-10-01','454.14'],['2026-02-16','454.14'],['2026-05-02','454.14'],['2026-02-28','75.69']])('%s 的12小时法定加班费为 %s', (date,expected)=>{expect(overtime(date)).toBe(expected);});
+  it('已补休不重复计2倍，法定日仍然3倍',()=>{const r=rules(),s={...quickShift('2026-10-11',r,'day'),ot:'compensated' as const};expect(splitShift(s,r).segments.every(x=>x.type==='compensated')).toBe(true);expect(splitShift({...s,date:'2026-10-01',start:'2026-10-01T08:00',end:'2026-10-01T20:00'},r).segments[0].type).toBe('holiday');});
+  it('排班不同可明确关闭日历覆盖；旧自定义规则不自动按周末2倍',()=>{const r=rules(),s={...quickShift('2026-10-11',r,'day'),useCalendar:false};expect(money(sum(splitShift(s,r).segments.map(x=>x.raw)))).toBe('75.69');expect(money(sum(splitShift({...s,useCalendar:true},{...r,fuzhouPolicy:false}).segments.map(x=>x.raw)))).toBe('75.69');});
+  it('日历工作日12小时176.61，工作日夜班201.61，休息日不重复加日基本工资',()=>{const r=rules(),shifts=[quickShift('2026-10-09',r,'day'),quickShift('2026-10-08',r,'night'),quickShift('2026-10-11',r,'day')],days=dailyEarnings(r,shifts);expect(days.get('2026-10-09')?.total).toBe('176.61');expect(days.get('2026-10-08')?.total).toBe('201.61');expect(days.get('2026-10-11')).toMatchObject({base:'0.00',overtime:'302.76',total:'302.76'});});
+  it('调休周六夜班跨入周日：4h正常+8h休息日；按时间拆分',()=>{const r=rules(),s=quickShift('2026-10-10',r,'night'),segments=splitShift(s,r).segments;expect(segments.map(x=>[x.hours,x.type])).toEqual([['4','normal'],['8','rest']]);expect(dailyEarnings(r,[s]).get(s.date)?.total).toBe('277.30');});
+  it('正常8h短夜班、22点整下班无25元；23点仍加班的白班可享有',()=>{const r=rules();for(const [type,hours] of [['night','8'],['night','2'],['day','14']] as const){const s=quickShift('2026-10-08',r,type,hours);expect(calculate(r,minimumCycle(),[s]).items.some(i=>i.id.startsWith('night-'))).toBe(false);}const s=quickShift('2026-10-08',r,'day','15');expect(calculate(r,minimumCycle(),[s]).items.find(i=>i.id.startsWith('night-'))?.amount).toBe('25.00');});
+  it('工资条明确填写的晚餐补贴实际金额优先',()=>{const r=rules(),s={...quickShift('2026-10-08',r,'night','2'),nightAmount:'16',allowanceConfirmed:true};expect(calculate(r,minimumCycle(),[s]).items.find(i=>i.id.startsWith('night-'))).toMatchObject({amount:'16.00',confirmed:true});});
+});
+
+describe('五险一金最低个人参考与实际覆盖',()=>{
+  it('2026-10四项分别366.32、91.58、22.90、110.00，共590.80',()=>{const out=calculate(rules(),minimumCycle(),[]);expect(out.items.filter(i=>i.deduction).map(i=>i.amount)).toEqual(['366.32','91.58','22.90','110.00']);expect(out.deductions).toBe('590.80');expect(out.net).toBe('1604.20');expect(out.items.filter(i=>i.deduction).every(i=>!i.confirmed)).toBe(true);});
+  it('个人实扣200覆盖养老，不重复叠加最低参考',()=>{const c=minimumCycle();c.deductions[0]={...c.deductions[0],actual:'200',confirmed:true};const out=calculate(rules(),c,[]);expect(out.deductions).toBe('424.48');expect(out.items.filter(i=>i.name==='养老保险')).toHaveLength(1);expect(out.items.find(i=>i.name==='养老保险')?.confirmed).toBe(true);});
+  it('填实际0可覆盖，基数费率可修改，公积金参考独立按元四舍五入',()=>{const c=minimumCycle();c.deductions[0].actual='0';c.deductions[3].rate='12';const out=calculate({...rules(),rounding:'down'},c,[]);expect(out.items.find(i=>i.name==='住房公积金')?.amount).toBe('263.00');expect(out.items.find(i=>i.name==='养老保险')?.amount).toBe('0.00');});
+  it('部分工资周期不按一天摊薄月社保，实际0.01元公积金也不被整元规则覆盖',()=>{const c={...minimumCycle(),mode:'partial' as const,paidDays:'1'};c.deductions[3].actual='0.01';expect(calculate(rules(),c,[]).deductions).toBe('480.81');});
+  it('失业基数从通知印发次月10月变，不倒推到9月',()=>{expect(insuranceReference('2026-09').find(x=>x.name==='失业保险')?.base).toBe('4043');expect(insuranceReference('2026-10').find(x=>x.name==='失业保险')?.base).toBe('4579');expect(insuranceReference('2026-06')).toEqual([]);});
+  it('新参加工作首月不预扣公积金，次月开始；不根据试用身份延迟',()=>{expect(calculate({...rules(),hireDate:'2026-10-01'},minimumCycle(),[]).deductions).toBe('480.80');expect(calculate({...rules(),employee:'trial'},minimumCycle(),[]).deductions).toBe('590.80');});
+  it('仅实际模式不会套最低，未来年份保留参考并显式提示更新',()=>{expect(calculate(rules(),{...minimumCycle(),insuranceMode:'manual'},[]).deductions).toBe('0.00');expect(calculate(rules(),{...minimumCycle(),month:'2027-01'},[]).warnings.some(w=>w.includes('2027年'))).toBe(true);});
+  it('没有工伤/生育单位费用、长护险个人账户划扣的重复现金扣款',()=>{expect(calculate(rules(),minimumCycle(),[]).items.filter(i=>i.deduction).map(i=>i.name)).toEqual(['养老保险','医疗保险','失业保险','住房公积金']);});
+  it('删除某个默认扣款行也不意外漏计最低参考，拒绝重复保险项目备份',()=>{const c=minimumCycle();c.deductions=c.deductions.slice(1);expect(calculate(rules(),c,[]).deductions).toBe('590.80');const s=initialState();s.cycles['2026-10']=c;c.deductions.push({...c.deductions[0],id:'duplicate-name'});expect(()=>parseBackup(JSON.stringify(s))).toThrow('五险一金项目');});
+});
+
+describe('旧账本升级',()=>{
+  it('已有扣款、原始考勤、历史快照保留，升级只运行一次并写修改记录',()=>{const s=initialState();s.rules={...s.rules,version:1,fuzhouPolicy:false,baseDays:'23',system:'unknown'};const c={...newCycle('2026-10',s.rules),insuranceMode:'manual' as const};c.deductions[0].actual='328.55';s.cycles[c.month]=c;const snapshot=JSON.stringify(s.snapshots),shifts=JSON.stringify(s.shifts);const out=upgradeFuzhouPolicy(s);expect(out.rules).toMatchObject({fuzhouPolicy:true,baseDays:'21.75',system:'standard',version:2});expect(out.cycles['2026-09'].denominator).toBe('23');expect(out.cycles['2026-10'].insuranceMode).toBe('minimum');expect(out.cycles['2026-10'].deductions[0].actual).toBe('328.55');expect(JSON.stringify(out.snapshots)).toBe(snapshot);expect(JSON.stringify(out.shifts)).toBe(shifts);expect(out.audit).toHaveLength(1);expect(upgradeFuzhouPolicy(out)).toEqual(out);expect(out.audit).toHaveLength(1);});
+  it('历史715.42仍可重算核对；旧备份缺字段时保留原规则供升级',()=>{const s=initialState();expect(s.snapshots[0].result.net).toBe('715.42');expect(calculate(s.rules,s.cycles['2026-09'],s.shifts).net).toBe('715.42');const raw=JSON.parse(JSON.stringify(s));delete raw.rules.fuzhouPolicy;delete raw.cycles['2026-09'].insuranceMode;const parsed=parseBackup(JSON.stringify(raw));expect(parsed.rules.fuzhouPolicy).toBe(false);expect(parsed.cycles['2026-09'].insuranceMode).toBe('manual');});
+});

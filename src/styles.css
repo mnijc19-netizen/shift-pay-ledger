@@ -74,3 +74,19 @@
 [data-theme=dark] .quick-type-buttons small{color:#9bb685}[data-theme=dark] .quick-type-buttons button.selected small{color:#c7dcaf}
 @media(max-width:1200px){.quick-entry-bar{gap:15px}.quick-entry-copy{flex:0 0 100%}.quick-type-buttons{justify-content:flex-start}.quick-type-buttons button{padding:9px 12px}}
 @media(max-width:760px){.theme-toggle{padding:6px;border:0}.theme-toggle span{display:none}.quick-entry-bar{gap:13px;padding:16px 12px;margin-bottom:16px}.quick-entry-copy{flex:0 0 100%}.quick-entry-copy strong{font-size:13px}.quick-entry-copy small{font-size:9px}.quick-type-buttons{flex:0 0 100%;justify-content:stretch;gap:6px}.quick-type-buttons button{flex:1;justify-content:center;padding:11px 5px;gap:5px;font-size:11px}.quick-type-buttons svg{width:15px}.quick-type-buttons small{font-size:7px;white-space:nowrap}.quick-hours{width:100%;justify-content:center}.quick-hours input{width:90px;padding:8px;font-size:23px}.quick-entry-hint{font-size:9px}.calendar-day{min-height:115px;gap:6px}.calendar-day .day-record small{font-size:8px}.daily-earnings small{font-size:7px;margin-bottom:4px}.daily-earnings strong{font-size:10px;letter-spacing:-.4px}.daily-earning-note{font-size:9px;padding-top:12px}.calendar-day .unrecorded{font-size:8px}.calendar-record-count{font-size:7px}.shift-picker{gap:8px}.shift-picker button{padding:15px 5px;font-size:11px}.shift-picker small{font-size:8px}.hours-entry input{font-size:33px}.quick-guide .tips{font-size:10px}}
+
+/* The default policy is readable at a glance; rarely used inputs stay collapsed. */
+.policy-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-bottom:18px}
+.policy-summary>div{display:flex;flex-direction:column;gap:9px;min-width:0}
+.policy-summary small,.policy-summary span{color:var(--muted);font-size:12px}
+.policy-summary strong{font-size:27px;letter-spacing:-.7px;font-variant-numeric:tabular-nums}
+.policy-summary strong small{font-weight:400;letter-spacing:0}
+.policy-details{margin-bottom:18px}
+.policy-details>summary{cursor:pointer;font-weight:600;padding:5px 0;line-height:1.6}
+.policy-details[open]>summary{margin-bottom:20px}
+.policy-details .tips li{margin-bottom:12px;line-height:1.8}
+.policy-source-links{display:grid;gap:12px;margin-top:22px}
+.policy-source-links a{justify-content:flex-start;overflow-wrap:anywhere}
+.advanced-rules>summary{padding:18px 24px;background:var(--surface,transparent);border:1px solid var(--border);border-radius:12px}
+.deduction-details{margin-top:28px;padding:16px;border:1px solid var(--border);border-radius:12px}
+@media(max-width:700px){.policy-summary{grid-template-columns:1fr;gap:22px}.policy-summary>div+div{border-top:1px solid var(--border);padding-top:20px}.policy-summary strong{font-size:25px}.policy-details .tips{padding-left:20px}}
