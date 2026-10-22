@@ -5,7 +5,7 @@ import { stateSchema, uid } from './domain/model';
 import { newCycle } from './domain/seed';
 import { calculate, splitShift, validateAttendance } from './domain/engine';
 import { monthOf, period } from './domain/dates';
-import { load, persist, parseBackup, upgradeFuzhouPolicy, download, ledgerCsv, attendanceCsv, payslipCsv } from './domain/storage';
+import { load, persist, parseBackup, upgradeSavedState, download, ledgerCsv, attendanceCsv, payslipCsv } from './domain/storage';
 import { Overview } from './components/Overview';
 import { Attendance } from './components/Attendance';
 import { RuleSettings } from './components/Rules';
@@ -40,7 +40,7 @@ export default function App(){
     }catch(e){setToast((e as Error).message);return false;}
   };
   const saveSnapshot=()=>{commit('保存工资快照','锁定 '+month+' 的规则、考勤、工资与工资条',s=>({...s,snapshots:[...s.snapshots,{id:uid(),month,savedAt:new Date().toISOString(),rules:structuredClone(s.rules),cycle:structuredClone(cycle),shifts:structuredClone(s.shifts.filter(x=>{const p=period(month,s.rules.cycleEnd);return x.date>=p.start&&x.date<=p.end;})),result:structuredClone(result),payslip:structuredClone(s.payslips.find(x=>x.month===month))}]}));};
-  const restore=async(file:File)=>{try{if(file.size>20*1024*1024)throw new Error('备份文件超过 20MB。');const recovered=upgradeFuzhouPolicy(parseBackup(await file.text()));download('班薪记-恢复前备份-'+today()+'.json',JSON.stringify(state,null,2));const delta=diffs(state,recovered);recovered.audit.push({id:uid(),at:new Date().toISOString(),action:'恢复 JSON 备份',note:'恢复前已导出原数据；文件 '+file.name,...delta});persist(recovered);setState(recovered);setStorageError('');setSnapshotId('');setToast('备份已恢复，恢复前的数据已导出。');}catch(e){setToast('恢复失败，原数据未改动：'+(e as Error).message);}};
+  const restore=async(file:File)=>{try{if(file.size>20*1024*1024)throw new Error('备份文件超过 20MB。');const recovered=upgradeSavedState(parseBackup(await file.text()));download('班薪记-恢复前备份-'+today()+'.json',JSON.stringify(state,null,2));const delta=diffs(state,recovered);recovered.audit.push({id:uid(),at:new Date().toISOString(),action:'恢复 JSON 备份',note:'恢复前已导出原数据；文件 '+file.name,...delta});persist(recovered);setState(recovered);setStorageError('');setSnapshotId('');setToast('备份已恢复，恢复前的数据已导出。');}catch(e){setToast('恢复失败，原数据未改动：'+(e as Error).message);}};
   const exportMonth=()=>{download(month+'-工资明细.csv',ledgerCsv(result),'text/csv;charset=utf-8');};
   const goto=(id:Page)=>{setPage(id);setSnapshotId('');setMobileMenu(false);window.scrollTo({top:0,behavior:'smooth'});};
   const bounds=period(month,state.rules.cycleEnd);

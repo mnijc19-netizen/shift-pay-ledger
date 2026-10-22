@@ -34,9 +34,18 @@ export function upgradeFuzhouPolicy(state:State):State{
   state.audit.push({id:uid(),at:new Date().toISOString(),action:'启用福州法定标准',note:'2026-10-22核验；当前预测按2195元、五天八小时、21.75天及最低个人缴费参考；实际扣款和历史快照保留。',before,after:JSON.stringify({rules:state.rules,cycles:state.cycles})});
   return state;
 }
+export function upgradeStartDateBasis(state:State):State{
+  if(state.startDateBasisApplied)return state;
+  const before=JSON.stringify({rules:state.rules,startDateBasisApplied:state.startDateBasisApplied});
+  state.rules={...state.rules,split:false,version:state.rules.version+1,updatedAt:new Date().toISOString()};
+  state.startDateBasisApplied=true;
+  state.audit.push({id:uid(),at:new Date().toISOString(),action:'整班按上班日计薪',note:'按用户指定：整班使用开始上班日期的工资类型，过零点不换倍率；工时、实际金额、手动修正和历史快照保留。',before,after:JSON.stringify({rules:state.rules,startDateBasisApplied:true})});
+  return state;
+}
+export const upgradeSavedState=(state:State)=>upgradeStartDateBasis(upgradeFuzhouPolicy(state));
 export function load():{state:State;error:string;raw:string}{
   let raw='';
-  try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?upgradeFuzhouPolicy(parseBackup(raw)):initialState(),error:'',raw:''};}
+  try{raw=localStorage.getItem(STORAGE_KEY)||'';return {state:raw?upgradeSavedState(parseBackup(raw)):initialState(),error:'',raw:''};}
   catch(e){return {state:initialState(),error:'本地数据读取失败，原始内容未覆盖。请先导出原始数据，再通过备份恢复。'+String(e),raw};}
 }
 export function persist(state:State){localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}

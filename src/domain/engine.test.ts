@@ -6,7 +6,7 @@ import { stateSchema, shiftSchema, rulesSchema, uid } from './model';
 import { parseBackup, csv, ledgerCsv, attendanceCsv } from './storage';
 import type { Rules, Shift } from './model';
 // Explicit legacy rules keep historical/custom-regime regressions independent of the new default.
-const rules=():Rules=>({...structuredClone(defaultRules),version:1,fuzhouPolicy:false,baseDays:'23',system:'unknown'});
+const rules=():Rules=>({...structuredClone(defaultRules),version:1,fuzhouPolicy:false,split:true,baseDays:'23',system:'unknown'});
 // Legacy unpaid-meal cases stay explicit; quick entry now pays the full twelve hours.
 function ordinary(day='2026-10-08',night=false){return {...newShift(day,rules(),night?'night':'day'),mealMinutes:'30',ot:'normal' as const,nightAllowance:false};}
 const amount=(s:Shift,r=rules())=>money(sum(splitShift(s,r).segments.map(x=>x.raw)),r.rounding);

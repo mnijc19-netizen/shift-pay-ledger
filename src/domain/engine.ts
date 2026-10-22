@@ -34,7 +34,7 @@ export function splitShift(s:Shift,r:Rules,normalUsedBefore:Decimal.Value='0'):{
   const allocationBase=physical.isZero()&&s.paidHours!==''?dec(end-start).div(3600000):physical;
   if(paid.gt(dec(end-start).div(3600000)))throw new Error('计薪工时不能超过实际班次时长');
   const warnings:string[]=[];
-  if(s.paidHours!==''&&rows.length>1)warnings.push(`${s.date}：手动计薪工时按各日期原计薪时长比例分配，可在分段修正中指定。`);
+  if(s.paidHours!==''&&rows.length>1&&r.split)warnings.push(`${s.date}：手动计薪工时按各日期原计薪时长比例分配，可在分段修正中指定。`);
   const exact=rows.map(row=>s.overrides[row.date]?.hours??'');
   if(exact.some(x=>x!=='')){
     if(exact.some(x=>x===''))throw new Error('手动拆分工时须填写每个日期');

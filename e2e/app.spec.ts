@@ -9,9 +9,9 @@ test('点日期直接记 12h，提前下班只改工时，日历显示当天收�
   await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');
   const day=page.locator('[data-date="2026-10-09"]');await day.click();await expect(page.getByRole('dialog')).toHaveCount(0);await expect(day).toContainText('12 小时');await expect(day.locator('.daily-earnings strong')).toHaveText('¥176.61');
   await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/}).click();
-  const night=page.locator('[data-date="2026-10-10"]');await night.click();await expect(night).toContainText('12 小时');await expect(night.locator('.daily-earnings strong')).toHaveText('¥277.30');
-  await page.getByLabel('快速录入工时').fill('8');const short=page.locator('[data-date="2026-10-11"]');await short.click();await expect(short).toContainText('8 小时');await expect(short.locator('.daily-earnings strong')).toHaveText('¥176.38');await expect(page.getByLabel('快速录入工时')).toHaveValue('12');
-  await day.click();const dialog=page.getByRole('dialog');await expect(dialog.getByLabel('今天上几个小时')).toHaveValue('12');await dialog.getByLabel('今天上几个小时').fill('8');await dialog.getByRole('button',{name:'保存记录',exact:true}).click();await expect(day.locator('.daily-earnings strong')).toHaveText('¥100.92');
+  const night=page.locator('[data-date="2026-10-10"]');await night.click();await expect(night).toContainText('12 小时');await expect(night.locator('.daily-earnings strong')).toHaveText('¥201.61');
+  await page.getByLabel('快速录入工时').fill('8');const short=page.locator('[data-date="2026-10-11"]');await short.click();await expect(short).toContainText('8 小时');await expect(short.locator('.daily-earnings strong')).toHaveText('¥226.84');await expect(page.getByLabel('快速录入工时')).toHaveValue('12');
+  await day.click();const dialog=page.getByRole('dialog');await expect(dialog.getByLabel('今天上几个小时')).toHaveValue('12');await expect(dialog.getByText('这班怎么算',{exact:true})).toBeVisible();await expect(dialog).toContainText('时薪基数 = 2195 ÷ 21.75 ÷ 8 ≈ 12.61494');await dialog.getByLabel('今天上几个小时').fill('8');await dialog.getByRole('button',{name:'保存记录',exact:true}).click();await expect(day.locator('.daily-earnings strong')).toHaveText('¥100.92');
   await page.reload();await nav(page,'考勤日历');await expect(page.locator('[data-date="2026-10-09"] .daily-earnings strong')).toHaveText('¥100.92');
   await expect(page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/})).toHaveAttribute('aria-pressed','true');
   await page.setViewportSize({width:375,height:812});await expect(page.locator('.sidebar')).not.toBeInViewport();await expect(page.locator('[data-date="2026-10-10"] .daily-earnings strong')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -63,4 +63,13 @@ test('旧浏览器账本自动升级一次，原有历史快照保留',async({pa
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).snapshots)).toEqual(oldSnapshot);
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='启用福州法定标准').length)).toBe(1);
   await page.reload();expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='启用福州法定标准').length)).toBe(1);
+});
+
+test('已有账本刷新后改用上班日标准，10月6日夜班全部用6日倍率',async({page})=>{
+  await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/}).click();await page.locator('[data-date="2026-10-10"]').click();
+  const oldSnapshot=await page.evaluate(()=>{const s=JSON.parse(localStorage.getItem('shift-pay:v1')!);delete s.startDateBasisApplied;s.rules.split=true;s.rules.version=2;localStorage.setItem('shift-pay:v1',JSON.stringify(s));return s.snapshots;});
+  await page.reload();await nav(page,'考勤日历');await expect(page.locator('[data-date="2026-10-10"] .daily-earnings strong')).toHaveText('¥201.61');
+  await page.locator('[data-date="2026-10-06"]').click();await expect(page.locator('[data-date="2026-10-06"] .daily-earnings strong')).toHaveText('¥327.76');await page.locator('[data-date="2026-10-06"]').click();const d=page.getByRole('dialog');await expect(d).toContainText('整班按 2026-10-06 的工资标准');await expect(d).toContainText('加班费 ¥302.76');await expect(d).toContainText('本班补贴 ¥25.00');await d.getByRole('button',{name:'关闭',exact:true}).click();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).snapshots)).toEqual(oldSnapshot);await page.reload();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('shift-pay:v1')!).audit.filter((x:{action:string})=>x.action==='整班按上班日计薪').length)).toBe(1);
 });
