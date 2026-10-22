@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Rules, Shift, Cycle, PayItem, PayResult, OT, Payslip } from './model';
 import { otLabels } from './model';
-import { civilMs, nextDate, period } from './dates';
+import { civilMs, nextDate, period, monthOf } from './dates';
 
 export const D = Decimal.clone({precision:40, rounding:Decimal.ROUND_HALF_UP});
 export const dec=(v:Decimal.Value)=>new D(v);
@@ -144,6 +144,30 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
   const expectedCash=sum(cash.filter(i=>!i.confirmed).map(i=>i.amount));
   const deductions=sum(items.filter(i=>i.deduction).map(i=>i.amount));
   return {items,gross:money(confirmedCash.plus(expectedCash),r.rounding),confirmedCash:money(confirmedCash),expectedCash:money(expectedCash),noncash:money(sum(items.filter(i=>!i.deduction&&['card','other'].includes(i.method)).map(i=>i.amount))),unknownBenefit:money(sum(items.filter(i=>!i.deduction&&i.method==='unknown').map(i=>i.amount))),deductions:money(deductions),net:money(confirmedCash.plus(expectedCash).minus(deductions)),warnings:[...new Set(warnings)],hours,stats:{shifts:shifts.filter(s=>!nonWork(s)).length,day:shifts.filter(s=>['day','short','holiday'].includes(s.type)).length,night:shifts.filter(s=>s.type==='night').length,rest:shifts.filter(s=>['rest','pendingRest'].includes(s.type)).length}};
+}
+
+export interface DailyEarning {base:string; overtime:string; allowances:string; total:string; hours:string; pending:boolean}
+// This is a calendar allocation for display. Monthly salary is calculated only by calculate().
+export function dailyEarnings(r:Rules,all:Shift[],cycles:Record<string,Cycle>={}):Map<string,DailyEarning>{
+  const shifts=[...new Map(all.filter(s=>!s.draft).map(s=>[s.id,s])).values()];
+  const analyses=analyzeShifts(shifts,r),days=new Map<string,{base:Decimal;overtime:Decimal;allowances:Decimal;hours:Decimal;pending:boolean}>();
+  for(const s of shifts){
+    const day=days.get(s.date)??{base:dec(0),overtime:dec(0),allowances:dec(0),hours:dec(0),pending:false};
+    days.set(s.date,day);
+    if(nonWork(s))continue;
+    const segments=analyses.get(s.id)!.segments,hours=sum(segments.map(x=>x.hours));
+    if(!hours.gt(0))continue;
+    const c=cycles[monthOf(s.date,r.cycleEnd)],denominator=c?.denominator||r.baseDays;
+    const actualDays=c?.mode==='partial'?c.paidDays:c?.expectedDays||denominator;
+    const base=c?.baseActual!==undefined&&c.baseActual!==''?(dec(actualDays).gt(0)?dec(c.baseActual).div(actualDays):dec(0)):c?.mode==='manual'?dec(0):dec(r.base).div(denominator);
+    day.base=base;
+    day.hours=day.hours.plus(hours);
+    day.overtime=day.overtime.plus(sum(segments.map(x=>x.raw)));
+    if(s.dayMeal)day.allowances=day.allowances.plus(r.dayMeal);
+    if(s.nightAllowance)day.allowances=day.allowances.plus(s.nightAmount||r.night);
+    day.pending ||= segments.some(x=>x.type==='unknown');
+  }
+  return new Map([...days].map(([date,d])=>[date,{base:money(d.base,r.rounding),overtime:money(d.overtime,r.rounding),allowances:money(d.allowances,r.rounding),total:money(d.base.plus(d.overtime).plus(d.allowances),r.rounding),hours:d.hours.toString(),pending:d.pending}]));
 }
 
 export function comparePayslip(result:PayResult,payslip:Payslip){

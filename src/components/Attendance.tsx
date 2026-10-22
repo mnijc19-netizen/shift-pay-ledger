@@ -3,8 +3,9 @@ import { Plus, ChevronLeft, ChevronRight, Moon, Sun, Trash2, Copy, Check, Clock3
 import type { Rules, Shift, State } from '../domain/model';
 import { shiftSchema, shiftTypes, shiftLabels, otTypes, otLabels, sourceLabels } from '../domain/model';
 import { daysIn, shiftMonth, nextDate, period } from '../domain/dates';
-import { newShift } from '../domain/seed';
-import { splitShift, analyzeShifts, sum, money, nonWork, validateAttendance } from '../domain/engine';
+import { newShift, quickShift } from '../domain/seed';
+import type { QuickType } from '../domain/seed';
+import { splitShift, analyzeShifts, dailyEarnings, sum, money, nonWork, validateAttendance } from '../domain/engine';
 import { Badge, Field, Num, Toggle, Modal, Notice, currency, prettyHours } from './ui';
 export type Commit=(action:string,note:string,update:(s:State)=>State)=>boolean;
 
@@ -24,21 +25,119 @@ function ShiftEditor({shift,r,others,onSave,onDelete,onClose}:{shift:Shift;r:Rul
     {(error||calcError)&&<Notice>{error||calcError}</Notice>}</div><footer className="modal-footer"><button className="button danger ghost" onClick={onDelete}><Trash2 size={16}/>删除记录</button><div><button className="button secondary" onClick={onClose}>取消</button><button className="button primary" onClick={save}><Check size={16}/>保存记录</button></div></footer></Modal>;
 }
 
+function QuickEditor({date,record,r,onSave,onDelete,onDetails,onClose}:{date:string;record?:Shift;r:Rules;onSave:(s:Shift)=>void;onDelete:()=>void;onDetails:(s:Shift)=>void;onClose:()=>void}){
+  const [day,setDay]=useState(date),[type,setType]=useState<QuickType>(record?.type==='night'?'night':record?.type==='rest'?'rest':'day');
+  const [hours,setHours]=useState(()=>record&&!nonWork(record)?sum(splitShift({...record,draft:false},r).segments.map(x=>x.hours)).toString():'12');
+  const [error,setError]=useState('');
+  const candidate=()=>quickShift(day,r,type,hours,record);
+  return <Modal title={record?'修改当天工时':'快速录入'} onClose={onClose}><div className="modal-body quick-editor">
+    <Field label="日期"><input type="date" value={day} onChange={e=>setDay(e.target.value)}/></Field>
+    <div className="shift-picker" role="group" aria-label="班次选择">{(['day','night','rest'] as const).map(t=><button key={t} className={type===t?'selected':''} aria-pressed={type===t} onClick={()=>setType(t)}>{t==='day'?<Sun size={20}/>:t==='night'?<Moon size={20}/>:<Clock3 size={20}/>}<strong>{t==='day'?'白班':t==='night'?'夜班':'休息'}</strong><small>{t==='day'?'08:00 开始':t==='night'?'20:00 开始':'不计工时'}</small></button>)}</div>
+    {type!=='rest'&&<div className="hours-entry"><Field label="今天上几个小时"><input type="number" min="0.5" max="24" step="0.5" inputMode="decimal" value={hours} onChange={e=>setHours(e.target.value)}/></Field><span>小时</span><p>正常一班填 12，提前下班改这里。吃饭不扣工时。</p></div>}
+    <p className="muted small">普通班次按工作日估算，法定节假日自动拆分。补休、休息日加班等特殊情况可在详细设置修改。</p>
+    {error&&<Notice>{error}</Notice>}
+    <button className="text-button" onClick={()=>{try{onDetails(candidate());}catch(e){setError((e as Error).message);}}}>详细设置与计算明细 →</button>
+  </div><footer className="modal-footer">{record?<button className="button danger ghost" onClick={onDelete}><Trash2 size={15}/>删除记录</button>:<button className="button secondary" onClick={onClose}>取消</button>}<button className="button primary" onClick={()=>{try{onSave(candidate());}catch(e){setError((e as Error).message);}}}><Check size={16}/>保存记录</button></footer></Modal>;
+}
+
 export function Attendance({state,month,commit}:{state:State;month:string;commit:Commit}){
-  const [view,setView]=useState(month),[edit,setEdit]=useState<Shift|null>(null),[batch,setBatch]=useState(false),[start,setStart]=useState(month+'-01'),[end,setEnd]=useState(month+'-07'),[batchType,setBatchType]=useState<Shift['type']>('day'),[error,setError]=useState('');
+  const [view,setView]=useState(month),[edit,setEdit]=useState<Shift|null>(null),[quick,setQuick]=useState<{date:string;record?:Shift}|null>(null);
+  const [batch,setBatch]=useState(false),[start,setStart]=useState(month+'-01'),[end,setEnd]=useState(month+'-07'),[batchType,setBatchType]=useState<Shift['type']>('day'),[error,setError]=useState('');
+  const [quickType,setQuickType]=useState<QuickType>(()=>{try{const t=localStorage.getItem('shift-pay:quick-type');return t==='night'||t==='rest'?t:'day';}catch{return 'day';}});
+  const [quickHours,setQuickHours]=useState('12');
   const days=daysIn(view),offset=(new Date(days[0]+'T00:00:00Z').getUTCDay()+6)%7,r=state.rules,bounds=period(month,r.cycleEnd);
+  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date());
   const drafts=state.shifts.filter(s=>s.draft&&s.date>=bounds.start&&s.date<=bounds.end);
   const analyses=useMemo(()=>analyzeShifts(state.shifts,r),[state.shifts,r]);
-  const save=(s:Shift)=>{const success=commit('保存考勤',s.note||'用户修改班次',(old)=>{const shifts=[...old.shifts.filter(x=>x.id!==s.id),s];validateAttendance(shifts);splitShift(s,old.rules);return {...old,shifts};});if(success)setEdit(null);};
-  const createBatch=()=>{if(!start||!end||start>end||new Date(end).getTime()-new Date(start).getTime()>62*86400000){setError('请选择不超过 63 天的有效日期范围。');return;}const dates:string[]=[];for(let d=start;d<=end;d=nextDate(d))dates.push(d);const available=dates.filter(d=>!state.shifts.some(s=>s.date===d));if(commit('生成排班草稿',`${start} 至 ${end}；跳过已有日期`,s=>({...s,shifts:[...s.shifts,...available.map(date=>({...newShift(date,r,batchType),draft:true,note:'批量排班草稿；须逐条核实实际时段与加班类型。'}))]})))setBatch(false);};
-  return <><div className="page-title"><div><span className="eyebrow">ATTENDANCE</span><h1>把每一班记清楚</h1><p>只记录实际发生的班次，未录入的日期不推定出勤或缺勤。</p></div><button className="button primary" onClick={()=>setEdit(newShift(view+'-01',r))}><Plus size={18}/>新增考勤</button></div>
-    <div className="calendar-layout"><section className="card calendar-card"><div className="section-heading"><div className="month-switch"><button className="icon-button" aria-label="上个月" onClick={()=>setView(shiftMonth(view,-1))}><ChevronLeft size={18}/></button><h2>{view.replace('-',' 年 ')} 月</h2><button className="icon-button" aria-label="下个月" onClick={()=>setView(shiftMonth(view,1))}><ChevronRight size={18}/></button></div><button className="button secondary small-button" onClick={()=>setBatch(true)}><Copy size={15}/>排班草稿</button></div><div className="calendar-week">{'一二三四五六日'.split('').map(d=><span key={d}>{d}</span>)}</div><div className="calendar-grid">{Array.from({length:offset},(_,i)=><div key={'empty'+i} className="calendar-empty"/>)}{days.map(day=>{
-      const records=state.shifts.filter(s=>s.date===day),entry=r.calendar.find(c=>c.date===day),inCycle=day>=bounds.start&&day<=bounds.end;
-      return <button key={day} className={'calendar-day '+(inCycle?'in-cycle ':'')+(records.length?'has-record ':'')+(day===new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date())?'today':'')} onClick={()=>setEdit(records[0]??newShift(day,r))}><div className="date-line"><span>{Number(day.slice(-2))}</span>{entry&&<em className={entry.type==='statutory'?'holiday-marker':'day-marker'}>{entry.type==='statutory'?'法':entry.type==='makeup'?'班':entry.type==='personalRest'?'休':'假'}</em>}</div>{records.map(s=>{let h='0',cost='0';try{const seg=analyses.get(s.id)?.segments??[];h=sum(seg.map(x=>x.hours)).toString();cost=money(sum(seg.map(x=>x.raw)),r.rounding);}catch{/* corrupt entry is surfaced on edit */}return <div className={'day-record '+s.type+(s.draft?' draft':'')} key={s.id}>{s.type==='night'?<Moon size={12}/>:!nonWork(s)?<Sun size={12}/>:null}<span>{s.draft?'草稿':shiftLabels[s.type]}</span>{!nonWork(s)&&!s.draft&&<small>{prettyHours(h)}h<span className="calendar-money"> · ¥{cost}</span></small>}</div>;})}{!records.length&&<span className="unrecorded">未录入</span>}{records.length>1&&<span className="small">共 {records.length} 条，见下方列表</span>}</button>;
-    })}</div><div className="calendar-legend"><span><i className="legend-dot green-dot"/>所选工资周期</span><span><em className="holiday-marker">法</em>法定节假日</span><span><em className="day-marker">班</em>调休工作日</span><span>周末不自动按双倍计薪</span></div></section>
-    <aside className="stack"><section className="card"><div className="mini-icon"><Clock3 size={20}/></div><h3>录入前，先确认这三件事</h3><ol className="tips"><li>实际上下班时间与非计薪休息。</li><li>个人排班及是否安排补休。</li><li>加班类型与工资条确认状态。</li></ol><Notice>浅绿色为所选工资周期。夜班跨月时，仍归上班日期所属周期。</Notice></section><section className="card"><h3>待确认草稿 <Badge tone="amber">{drafts.length}</Badge></h3><p className="muted small">草稿不进入工资。点击核实时间、类型后关闭草稿开关。</p>{drafts.slice(0,6).map(d=><button key={d.id} className="list-button" onClick={()=>setEdit(d)}>{d.date}<span>{shiftLabels[d.type]} →</span></button>)}</section></aside></div>
-    <section className="card"><div className="section-heading"><h2>{view} · 已录入记录</h2><Badge>{state.shifts.filter(s=>s.date.startsWith(view)).length} 条</Badge></div><div className="records-list">{state.shifts.filter(s=>s.date.startsWith(view)).sort((a,b)=>a.start.localeCompare(b.start)).map(s=><button className="record-row" key={s.id} onClick={()=>setEdit(s)}><strong>{s.date}</strong><span>{shiftLabels[s.type]}</span><span className="muted">{nonWork(s)?'不生成加班费':s.start.slice(11)+' — '+s.end.slice(11)}</span><Badge tone={s.draft?'amber':s.source==='payslip'?'green':'muted'}>{s.draft?'草稿':sourceLabels[s.source]}</Badge><span className="truncate muted">{s.note}</span></button>)}</div></section>
-    {edit&&<ShiftEditor key={edit.id} shift={edit} r={r} others={state.shifts} onSave={save} onClose={()=>setEdit(null)} onDelete={()=>{if(commit('删除考勤',edit.note||'用户删除记录',s=>({...s,shifts:s.shifts.filter(x=>x.id!==edit.id)})))setEdit(null);}}/>}
+  const earnings=useMemo(()=>dailyEarnings(r,state.shifts,state.cycles),[r,state.shifts,state.cycles]);
+  const save=(s:Shift)=>{
+    const success=commit('保存考勤',s.note||'用户修改班次',old=>{
+      const shifts=[...old.shifts.filter(x=>x.id!==s.id),s];
+      validateAttendance(shifts);splitShift(s,old.rules);return {...old,shifts};
+    });
+    if(success){setEdit(null);setQuick(null);setError('');setQuickHours('12');}
+    return success;
+  };
+  const openRecord=(s:Shift)=>{
+    if(['day','night','short','rest'].includes(s.type))setQuick({date:s.date,record:s});
+    else setEdit(s);
+  };
+  const selectType=(t:QuickType)=>{setQuickType(t);try{localStorage.setItem('shift-pay:quick-type',t);}catch{/* Financial data storage reports its own errors. */}};
+  const tapDate=(day:string)=>{
+    const record=state.shifts.find(s=>s.date===day);
+    if(record){openRecord(record);return;}
+    try{save(quickShift(day,r,quickType,quickHours));}catch(e){setError((e as Error).message);}
+  };
+  const createBatch=()=>{
+    if(!start||!end||start>end||new Date(end).getTime()-new Date(start).getTime()>62*86400000){setError('请选择不超过 63 天的有效日期范围。');return;}
+    const dates:string[]=[];for(let d=start;d<=end;d=nextDate(d))dates.push(d);
+    const available=dates.filter(d=>!state.shifts.some(s=>s.date===d));
+    if(commit('生成排班草稿',start+' 至 '+end+'；跳过已有日期',s=>({...s,shifts:[...s.shifts,...available.map(date=>({...newShift(date,r,batchType),draft:true,note:'批量排班草稿；须核实后计薪。'}))]})))setBatch(false);
+  };
+  const deleteRecord=(s:Shift)=>{if(commit('删除考勤',s.note||'用户删除记录',old=>({...old,shifts:old.shifts.filter(x=>x.id!==s.id)}))){setEdit(null);setQuick(null);}};
+  return <>
+    <div className="page-title">
+      <div><span className="eyebrow">ATTENDANCE</span><h1>今天这一班，点一下就记好</h1><p>选白班或夜班，再点日期。默认 12 小时，吃饭不扣工时。</p></div>
+      <div className="button-row">
+        <button className="button secondary" onClick={()=>setEdit(newShift(today.startsWith(view)?today:view+'-01',r))}>详细录入</button>
+        <button className="button primary" onClick={()=>setQuick({date:today.startsWith(view)?today:view+'-01'})}><Plus size={18}/>新增考勤</button>
+      </div>
+    </div>
+    <section className="card quick-entry-bar">
+      <div className="quick-entry-copy"><strong>点日期直接记班</strong><small>已录入的日期，点开即可改工时</small></div>
+      <div className="quick-type-buttons" role="group" aria-label="快速录入班次">
+        {(['day','night','rest'] as const).map(t=><button key={t} className={quickType===t?'selected':''} aria-pressed={quickType===t} onClick={()=>selectType(t)}>
+          {t==='day'?<Sun size={17}/>:t==='night'?<Moon size={17}/>:<Clock3 size={17}/>}
+          <span>{t==='day'?'白班':t==='night'?'夜班':'休息'}<small>{t==='day'?'08:00—20:00':t==='night'?'20:00—次日08:00':'不记工时'}</small></span>
+        </button>)}
+      </div>
+      {quickType!=='rest'&&<div className="quick-hours"><label htmlFor="quick-hours">这一天上</label><input id="quick-hours" aria-label="快速录入工时" type="number" min="0.5" max="24" step="0.5" inputMode="decimal" value={quickHours} onChange={e=>{setQuickHours(e.target.value);setError('');}}/><span>小时</span></div>}
+      <p className="quick-entry-hint">普通班次按工作日估算，法定节假日自动拆分；休息日加班、补休等情况可在详细设置修正。</p>
+      {error&&<Notice>{error}</Notice>}
+    </section>
+    <div className="calendar-layout">
+      <section className="card calendar-card">
+        <div className="section-heading">
+          <div className="month-switch"><button className="icon-button" aria-label="上个月" onClick={()=>setView(shiftMonth(view,-1))}><ChevronLeft size={18}/></button><h2>{view.replace('-',' 年 ')} 月</h2><button className="icon-button" aria-label="下个月" onClick={()=>setView(shiftMonth(view,1))}><ChevronRight size={18}/></button></div>
+          <button className="button secondary small-button" onClick={()=>setBatch(true)}><Copy size={15}/>排班草稿</button>
+        </div>
+        <div className="calendar-week">{'一二三四五六日'.split('').map(d=><span key={d}>{d}</span>)}</div>
+        <div className="calendar-grid">
+          {Array.from({length:offset},(_,i)=><div key={'empty'+i} className="calendar-empty"/>)}
+          {days.map(day=>{
+            const records=state.shifts.filter(s=>s.date===day),entry=r.calendar.find(c=>c.date===day),inCycle=day>=bounds.start&&day<=bounds.end,earning=earnings.get(day);
+            return <button key={day} data-date={day} aria-label={day+(records.length?' 修改考勤':' 录入'+(quickType==='night'?'夜班':quickType==='rest'?'休息':'白班'))} className={'calendar-day '+(inCycle?'in-cycle ':'')+(records.length?'has-record ':'')+(day===today?'today':'')} onClick={()=>tapDate(day)}>
+              <div className="date-line"><span>{Number(day.slice(-2))}</span>{entry&&<em className={entry.type==='statutory'?'holiday-marker':'day-marker'}>{entry.type==='statutory'?'法':entry.type==='makeup'?'班':entry.type==='personalRest'?'休':'假'}</em>}</div>
+              {records.map(s=>{
+                const h=sum((analyses.get(s.id)?.segments??[]).map(x=>x.hours)).toString();
+                return <div className={'day-record '+s.type+(s.draft?' draft':'')} key={s.id}>
+                  {s.type==='night'?<Moon size={12}/>:!nonWork(s)?<Sun size={12}/>:null}
+                  <span>{s.draft?'草稿':s.type==='short'?'短班':s.type==='holiday'?'节假日班':shiftLabels[s.type]}</span>
+                  {!nonWork(s)&&!s.draft&&<small>{prettyHours(h)} 小时</small>}
+                </div>;
+              })}
+              {earning&&<div className={'daily-earnings '+(earning.pending?'pending':'')} title={'基本工资按日展示 '+currency(earning.base)+' + 加班 '+currency(earning.overtime)+' + 本班津贴 '+currency(earning.allowances)+(earning.pending?'；加班类型待确认':'')}>
+                <small>{earning.pending?'加班待定':'预计收入'}</small><strong>{currency(earning.total)}</strong>
+              </div>}
+              {!records.length&&<span className="unrecorded">+ 记{quickType==='night'?'夜班':quickType==='rest'?'休息':'白班'}</span>}
+              {records.length>1&&<span className="calendar-record-count">共 {records.length} 条，见下方</span>}
+            </button>;
+          })}
+        </div>
+        <div className="calendar-legend"><span><i className="legend-dot green-dot"/>所选工资周期</span><span><em className="holiday-marker">法</em>法定节假日</span><span><em className="day-marker">班</em>调休工作日</span></div>
+        <p className="daily-earning-note">每日预计 = 基本工资按日展示 + 当天加班费 + 本班津贴。月度奖金和扣款在工资总览核算，日历金额不会重复加进月薪。</p>
+      </section>
+      <aside className="stack">
+        <section className="card quick-guide"><div className="mini-icon"><Clock3 size={20}/></div><h3>正常上班，只需点日期</h3><ol className="tips"><li>选白班或夜班，默认计薪 12 小时。</li><li>提前下班，只改“这一天上”几个小时。</li><li>点空白日期立即录入，再点已记日期即可修改。</li></ol><Notice>工资条确认的历史工时保持原记录。夜班工资归上班日期所属周期。</Notice></section>
+        <section className="card"><h3>待确认草稿 <Badge tone="amber">{drafts.length}</Badge></h3><p className="muted small">草稿不进入工资，点开确认工时即可保存。</p>{drafts.slice(0,6).map(d=><button key={d.id} className="list-button" onClick={()=>openRecord(d)}>{d.date}<span>{shiftLabels[d.type]} →</span></button>)}</section>
+      </aside>
+    </div>
+    <section className="card">
+      <div className="section-heading"><h2>{view} · 已录入记录</h2><Badge>{state.shifts.filter(s=>s.date.startsWith(view)).length} 条</Badge></div>
+      <div className="records-list">{state.shifts.filter(s=>s.date.startsWith(view)).sort((a,b)=>a.start.localeCompare(b.start)).map(s=><button className="record-row" key={s.id} onClick={()=>openRecord(s)}><strong>{s.date}</strong><span>{shiftLabels[s.type]}</span><span className="muted">{nonWork(s)?'不生成加班费':s.start.slice(11)+' — '+s.end.slice(11)}</span><Badge tone={s.draft?'amber':s.source==='payslip'?'green':'muted'}>{s.draft?'草稿':sourceLabels[s.source]}</Badge><span className="truncate muted">{s.note}</span></button>)}</div>
+    </section>
+    {quick&&<QuickEditor key={quick.record?.id??quick.date} date={quick.date} record={quick.record} r={r} onClose={()=>setQuick(null)} onSave={save} onDelete={()=>{if(quick.record)deleteRecord(quick.record);}} onDetails={s=>{setQuick(null);setEdit(s);}}/>}
+    {edit&&<ShiftEditor key={edit.id} shift={edit} r={r} others={state.shifts} onSave={save} onClose={()=>setEdit(null)} onDelete={()=>deleteRecord(edit)}/>}
     {batch&&<Modal title="批量生成排班草稿" onClose={()=>setBatch(false)}><div className="modal-body"><Notice>只生成草稿，跳过已有记录的日期。每条草稿需核实后才计薪。</Notice><div className="form-grid"><Field label="开始日期"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></Field><Field label="结束日期"><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></Field><Field label="班次"><select value={batchType} onChange={e=>setBatchType(e.target.value as Shift['type'])}>{(['day','night','rest'] as const).map(t=><option value={t} key={t}>{shiftLabels[t]}</option>)}</select></Field></div>{error&&<Notice>{error}</Notice>}</div><footer className="modal-footer"><button className="button primary" onClick={createBatch}>生成草稿</button></footer></Modal>}
   </>;
 }

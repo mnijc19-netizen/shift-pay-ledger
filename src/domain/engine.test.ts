@@ -1,13 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
-import { defaultRules, initialState, newShift, newCycle } from './seed';
-import { calculate, comparePayslip, hourly, money, splitShift, sum, validateAttendance } from './engine';
+import { defaultRules, initialState, newShift, newCycle, quickShift } from './seed';
+import { calculate, comparePayslip, dailyEarnings, hourly, money, splitShift, sum, validateAttendance } from './engine';
 import { period, monthOf, nextDate, shiftMonth, daysIn } from './dates';
 import { stateSchema, shiftSchema, rulesSchema, uid } from './model';
 import { parseBackup, csv, ledgerCsv, attendanceCsv } from './storage';
 import type { Rules, Shift } from './model';
 const rules=():Rules=>structuredClone(defaultRules);
-function ordinary(day='2026-10-08',night=false){return {...newShift(day,rules(),night?'night':'day'),ot:'normal' as const,nightAllowance:false};}
+// Legacy unpaid-meal cases stay explicit; quick entry now pays the full twelve hours.
+function ordinary(day='2026-10-08',night=false){return {...newShift(day,rules(),night?'night':'day'),mealMinutes:'30',ot:'normal' as const,nightAllowance:false};}
 const amount=(s:Shift,r=rules())=>money(sum(splitShift(s,r).segments.map(x=>x.raw)),r.rounding);
+
+describe('12 小时快捷录入与日历预计收入',()=>{
+  it('默认不扣饭，白班 08–20 计薪 12h、加班 4h',()=>{const r=rules(),s=quickShift('2026-10-09',r,'day');expect(r.mealMinutes).toBe('0');expect([s.start,s.end,s.mealMinutes,s.paidHours,s.ot]).toEqual(['2026-10-09T08:00','2026-10-09T20:00','0','12','normal']);expect(amount(s)).toBe('75.69');});
+  it('旧规则仍有 30 分钟饭休时，快捷录入也使用用户填写的完整工时',()=>{const r={...rules(),mealMinutes:'30',deductShort:true},s=quickShift('2026-10-09',r,'night');expect(s.end).toBe('2026-10-10T08:00');expect(sum(splitShift(s,r).segments.map(s=>s.hours)).toString()).toBe('12');});
+  it('提前下班填 8 小时即可同步下班钟点，不生成工作日加班',()=>{const s=quickShift('2026-10-09',rules(),'night','8');expect(s.end).toBe('2026-10-10T04:00');expect(amount(s)).toBe('0.00');});
+  it('支持小数小时，拒绝负数、空值和超出一天的工时',()=>{expect(quickShift('2026-10-09',rules(),'day','11.5').end).toBe('2026-10-09T19:30');for(const h of ['','-1','25','0.001'])expect(()=>quickShift('2026-10-09',rules(),'day',h)).toThrow();});
+  it('休息快捷录入不依赖工时输入，不生成津贴',()=>{const s=quickShift('2026-10-09',rules(),'rest','');expect([s.type,s.paidHours,s.nightAllowance]).toEqual(['rest','0',false]);expect(dailyEarnings(rules(),[s]).get(s.date)?.total).toBe('0.00');});
+  it('白班日历展示基本日工资与加班合计 171.12，夜班预计 196.12',()=>{const r=rules(),day=quickShift('2026-10-09',r,'day'),night=quickShift('2026-10-10',r,'night');const out=dailyEarnings(r,[day,night]);expect(out.get(day.date)).toMatchObject({base:'95.43',overtime:'75.69',allowances:'0.00',total:'171.12',hours:'12'});expect(out.get(night.date)?.total).toBe('196.12');});
+  it('日历展示不改变月基本工资，也不混入月餐补与礼金',()=>{const r=rules(),s=quickShift('2026-10-09',r,'day'),c={...newCycle('2026-10',r),midGift:true,mealEnabled:true};const before=calculate(r,c,[s]);expect(dailyEarnings(r,[s],{'2026-10':c}).get(s.date)?.total).toBe('171.12');expect(calculate(r,c,[s])).toEqual(before);expect(before.items.filter(i=>i.id==='base')).toHaveLength(1);expect(before.items.find(i=>i.id==='base')?.amount).toBe('2195.00');});
+  it('日历跨午夜按实际节日拆分，但收入只显示在上班日期',()=>{const r=rules(),s=quickShift('2026-09-30',r,'night'),out=dailyEarnings(r,[s]);expect(out.size).toBe(1);expect(out.get(s.date)?.overtime).toBe('302.76');expect(out.has('2026-10-01')).toBe(false);});
+  it('同日多段只展示一次日基本工资，重复 ID 不重复生成每日金额',()=>{const r=rules(),a=quickShift('2026-10-09',r,'day','4'),b={...quickShift('2026-10-09',r,'day','8'),start:'2026-10-09T13:00',end:'2026-10-09T21:00'};expect(dailyEarnings(r,[a,b,a]).get(a.date)).toMatchObject({base:'95.43',overtime:'75.69',total:'171.12'});});
+  it('工资条确认的历史 11.5h 不会被快捷录入新默认改写',()=>{const state=initialState(),s=state.shifts.find(s=>s.id==='history-midautumn')!;expect(s.paidHours).toBe('11.5');expect(state.snapshots[0].result.net).toBe('715.42');const existing={...quickShift('2026-10-09',rules(),'day'),paidHours:'11.5',source:'payslip' as const};expect(quickShift(existing.date,rules(),'day','11.5',existing)).toBe(existing);});
+  it('实际改变工时后转为预计，并沿用原记录 ID',()=>{const r=rules(),s={...quickShift('2026-10-09',r,'day'),source:'payslip' as const,allowanceConfirmed:true};const changed=quickShift(s.date,r,'day','8',s);expect(changed.id).toBe(s.id);expect(changed.source).toBe('manual');expect(changed.allowanceConfirmed).toBe(false);});
+  it('升级和恢复旧备份不会改写旧工时或已保存工资快照',()=>{const old=initialState();old.rules.mealMinutes='30';old.shifts.find(s=>s.id==='night-known')!.mealMinutes='30';const snapshots=structuredClone(old.snapshots),restored=parseBackup(JSON.stringify(old));expect(restored.rules.mealMinutes).toBe('30');expect(sum(splitShift(restored.shifts.find(s=>s.id==='night-known')!,restored.rules).segments.map(s=>s.hours)).toString()).toBe('11.5');expect(quickShift('2026-10-22',restored.rules,'night').paidHours).toBe('12');expect(restored.snapshots).toEqual(snapshots);});
+});
 
 describe('人民币精度与验收工资条',()=>{
   it('保留小时工资基数精度',()=>expect(hourly(rules()).toFixed(8)).toBe('12.61494253'));
