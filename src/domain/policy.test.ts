@@ -29,7 +29,7 @@ describe('整班使用上班日期标准',()=>{
 });
 
 describe('五险一金最低个人参考与实际覆盖',()=>{
-  it('2026-10四项分别366.32、91.58、22.90、110.00，共590.80',()=>{const out=calculate(rules(),minimumCycle(),[]);expect(out.items.filter(i=>i.deduction).map(i=>i.amount)).toEqual(['366.32','91.58','22.90','110.00']);expect(out.deductions).toBe('590.80');expect(out.net).toBe('1604.20');expect(out.items.filter(i=>i.deduction).every(i=>!i.confirmed)).toBe(true);});
+  it('2026-10四项分别366.32、91.58、22.90、110.00，共590.80',()=>{const out=calculate(rules(),minimumCycle(),[]);expect(out.items.filter(i=>i.deduction).map(i=>i.amount)).toEqual(['366.32','91.58','22.90','110.00']);expect(out.deductions).toBe('590.80');expect(out.net).toBe('-590.80');expect(out.items.filter(i=>i.deduction).every(i=>!i.confirmed)).toBe(true);});
   it('个人实扣200覆盖养老，不重复叠加最低参考',()=>{const c=minimumCycle();c.deductions[0]={...c.deductions[0],actual:'200',confirmed:true};const out=calculate(rules(),c,[]);expect(out.deductions).toBe('424.48');expect(out.items.filter(i=>i.name==='养老保险')).toHaveLength(1);expect(out.items.find(i=>i.name==='养老保险')?.confirmed).toBe(true);});
   it('填实际0可覆盖，基数费率可修改，公积金参考独立按元四舍五入',()=>{const c=minimumCycle();c.deductions[0].actual='0';c.deductions[3].rate='12';const out=calculate({...rules(),rounding:'down'},c,[]);expect(out.items.find(i=>i.name==='住房公积金')?.amount).toBe('263.00');expect(out.items.find(i=>i.name==='养老保险')?.amount).toBe('0.00');});
   it('部分工资周期不按一天摊薄月社保，实际0.01元公积金也不被整元规则覆盖',()=>{const c={...minimumCycle(),mode:'partial' as const,paidDays:'1'};c.deductions[3].actual='0.01';expect(calculate(rules(),c,[]).deductions).toBe('480.81');});

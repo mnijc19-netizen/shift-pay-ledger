@@ -37,7 +37,7 @@ export const deductionNames = ['养老保险','医疗保险','失业保险','住
 export const deductionSchema = z.object({id:z.string(), name:z.string(), actual:z.union([numeric,z.literal('')]), base:z.union([numeric,z.literal('')]), rate:z.union([numeric,z.literal('')]), confirmed:z.boolean(), note:z.string()});
 export const extraSchema = z.object({id:z.string(), name:z.string().min(1), amount:numeric, confirmed:z.boolean(), method:z.enum(['cash','card','other','unknown']), source:z.enum(sourceTypes), note:z.string()});
 export const cycleSchema = z.object({
-  month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), confirmedRuleVersion:z.number().int().positive().default(1), insuranceMode:z.enum(['manual','minimum']).default('manual'), mode:z.enum(['full','partial','manual']), expectedDays:positive, paidDays:numeric,
+  month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/), confirmedRuleVersion:z.number().int().positive().default(1), insuranceMode:z.enum(['manual','minimum']).default('manual'), mode:z.enum(['attendance','full','partial','manual']), expectedDays:positive, paidDays:numeric,
   denominator:z.union([positive,z.literal('')]), baseActual:z.union([numeric,z.literal('')]), baseConfirmed:z.boolean(),
   postEnabled:z.boolean(), postConfirmed:z.boolean(), mealEnabled:z.boolean(), mealConfirmed:z.boolean(), mealDuplicateChecked:z.boolean(),
   heatEnabled:z.boolean(), heatActual:z.union([numeric,z.literal('')]), heatConfirmed:z.boolean(),
@@ -50,7 +50,7 @@ export const itemSchema = z.object({id:z.string(), name:z.string(), raw:z.string
 export const resultSchema = z.object({items:z.array(itemSchema), gross:z.string(), confirmedCash:z.string(), expectedCash:z.string(), noncash:z.string(), unknownBenefit:z.string(), deductions:z.string(), net:z.string(), warnings:z.array(z.string()), hours:z.record(z.string(),z.string()), stats:z.object({shifts:z.number(),day:z.number(),night:z.number(),rest:z.number()})});
 export const snapshotSchema = z.object({id:z.string(), month:z.string(), savedAt:z.string(), rules:rulesSchema, cycle:cycleSchema, shifts:z.array(shiftSchema), result:resultSchema, payslip:payslipSchema.optional()});
 export const auditSchema = z.object({id:z.string(), at:z.string(), action:z.string(), note:z.string(), before:z.string(), after:z.string(), format:z.literal('changes-v1').optional()});
-export const stateSchema = z.object({schema:z.literal(1), startDateBasisApplied:z.boolean().default(false), rules:rulesSchema, shifts:z.array(shiftSchema), cycles:z.record(z.string(),cycleSchema), payslips:z.array(payslipSchema), snapshots:z.array(snapshotSchema), audit:z.array(auditSchema)});
+export const stateSchema = z.object({schema:z.literal(1), startDateBasisApplied:z.boolean().default(false), attendanceBasisApplied:z.boolean().default(false), rules:rulesSchema, shifts:z.array(shiftSchema), cycles:z.record(z.string(),cycleSchema), payslips:z.array(payslipSchema), snapshots:z.array(snapshotSchema), audit:z.array(auditSchema)});
 export type Rules=z.infer<typeof rulesSchema>;
 export type Shift=z.infer<typeof shiftSchema>;
 export type Cycle=z.infer<typeof cycleSchema>;

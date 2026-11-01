@@ -4,7 +4,7 @@ import { money, sum } from '../domain/engine';
 import { currency } from './ui';
 
 const insuranceNames=new Set(['养老保险','医疗保险','失业保险','住房公积金']);
-export function PayCalculationChain({result}:{result:PayResult}){
+export function PayCalculationChain({result,accrued=false}:{result:PayResult;accrued?:boolean}){
   const cash=result.items.filter(i=>!i.deduction&&i.method==='cash'),deductions=result.items.filter(i=>i.deduction);
   const total=(items:PayItem[])=>money(sum(items.map(i=>i.amount)));
   const base=cash.filter(i=>i.id==='base'),ot=cash.filter(i=>i.id.startsWith('ot-')),night=cash.filter(i=>i.id.startsWith('night-'));
@@ -15,7 +15,7 @@ export function PayCalculationChain({result}:{result:PayResult}){
   return <section className="card pay-chain" aria-label="工资计算链">
     <div className="section-heading"><div><h2>工资怎么算到手</h2><p className="muted small">先加工资收入，再从应发里扣个人费用。</p></div></div>
     <div className="pay-chain-flow">
-      <div className="pay-chain-step"><h3><span>1</span>先算应发工资</h3>
+      <div className="pay-chain-step"><h3><span>1</span>{accrued?'先累计已录工资':'先算应发工资'}</h3>{accrued&&<p className="pay-chain-note">{base[0]?.formula}。未录入日期不计工资。</p>}
         {row('基本工资',currency(total(base)))}{row('＋ 加班费',currency(total(ot)))}{row('＋ 夜班餐补',currency(total(night)))}{row('＋ 绩效、其他津贴奖金',currency(total(other)))}
         <div className="pay-chain-total"><span>＝ 应发工资</span><strong data-testid="chain-gross">{currency(result.gross)}</strong></div>
       </div>{arrow}
@@ -24,12 +24,12 @@ export function PayCalculationChain({result}:{result:PayResult}){
         <p className="pay-chain-note">{insurance.some(i=>i.source==='pending')?'五险一金含最低参考估算；录入工资条实际扣款后，逐项替换。':'五险一金按本期已录入的个人扣款计算。'}单位承担部分不扣个人工资。</p>
         <div className="pay-chain-total"><span>＝ 扣款合计</span><strong data-testid="chain-deductions">{currency(result.deductions)}</strong></div>
       </div>{arrow}
-      <div className="pay-chain-step pay-chain-result"><h3><span>3</span>预计实发到账</h3>
+      <div className="pay-chain-step pay-chain-result"><h3><span>3</span>{accrued?'扣款后参考到账':'预计实发到账'}</h3>
         <p className="pay-chain-equation">应发 {currency(result.gross)}<br/>− 个人扣款 {currency(result.deductions)}</p>
         <strong className="pay-chain-net" data-testid="chain-net">＝ {currency(result.net)}</strong>
-        <p className="pay-chain-note">{tax.length?'个税使用本期录入金额。':'个税尚未录入，实际有个税时还要扣除。'}未填写的扣款不代表实际为零。</p>
+        <p className="pay-chain-note">{tax.length?'个税使用本期录入金额。':'个税尚未录入，实际有个税时还要扣除。'}未填写的扣款不代表实际为零。{accrued&&'五险一金按月参考；累计收入不足时出现负数，不代表欠款。'}</p>
       </div>
     </div>
-    <p className="pay-chain-footnote">饭卡400元另存饭卡，不计应发或实发；夜班餐补已加进工资。基本工资按本周期计一次，日历中的每日分摊不再重复相加。</p>
+    <p className="pay-chain-footnote">饭卡400元另存饭卡，不计应发或实发；夜班餐补已加进工资。{accrued?'基本工资只累计已录正常计薪工时，加班另算；未录入的日期不预加工资。':'基本工资按本周期计一次，日历中的每日分摊不再重复相加。'}</p>
   </section>;
 }

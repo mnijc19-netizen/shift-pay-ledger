@@ -54,7 +54,18 @@ export function upgradeMealCard(state:State):State{
   state.audit.push({id:uid(),at:new Date().toISOString(),action:'月餐补确认为饭卡福利',note:'用户确认：每月400元充入饭卡，不计应发或实发工资；夜班餐补仍计入工资。原工资条、实际金额、历史快照保留。',before,after:JSON.stringify({rules:state.rules})});
   return state;
 }
-export const upgradeSavedState=(state:State)=>upgradeMealCard(upgradeStartDateBasis(upgradeFuzhouPolicy(state)));
+export function upgradeAttendanceBasis(state:State):State{
+  if(state.attendanceBasisApplied)return state;
+  const before:Record<string,{mode:string}>={},after:Record<string,{mode:string}>={};
+  for(const cycle of Object.values(state.cycles)){
+    if(cycle.mode!=='full'||cycle.baseActual!==''||cycle.baseConfirmed)continue;
+    before[cycle.month]={mode:cycle.mode};cycle.mode='attendance';after[cycle.month]={mode:cycle.mode};
+  }
+  state.attendanceBasisApplied=true;
+  state.audit.push({id:uid(),at:new Date().toISOString(),action:'基本工资改为按已录考勤累计',note:'不再预加整月底薪；只升级未确认、未填实际金额的整月预测。历史快照、实际工资、手填部分周期与考勤原值保留。',format:'changes-v1',before:JSON.stringify({cycles:before}),after:JSON.stringify({cycles:after})});
+  return state;
+}
+export const upgradeSavedState=(state:State)=>upgradeAttendanceBasis(upgradeMealCard(upgradeStartDateBasis(upgradeFuzhouPolicy(state))));
 export interface LoadResult {state:State;error:string;raw:string}
 export function storageErrorMessage(error:unknown){
   const e=error as {name?:string;message?:string};
