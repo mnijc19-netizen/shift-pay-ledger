@@ -5,6 +5,31 @@ import { parseBackup, upgradeSavedState } from './storage';
 
 const rules=()=>structuredClone(defaultRules);
 const basic=(r=rules())=>({...newCycle('2026-10',r),postEnabled:false});
+describe('已录法定带薪假保留基本工资',()=>{
+  it('国庆1至3日休假累计24小时带薪工资，不虚构出勤或加班',()=>{
+    const r=rules(),c=basic(r),shifts=['2026-10-01','2026-10-02','2026-10-03'].map(d=>quickShift(d,r,'rest')),out=calculate(r,c,shifts);
+    expect(out.items.find(i=>i.id==='base')?.amount).toBe('302.76');expect(out.gross).toBe('302.76');expect(out.stats.shifts).toBe(0);expect(out.items.some(i=>i.id.startsWith('ot-')||i.id.startsWith('night-'))).toBe(false);
+    const detail=dailyWageDetails(shifts[0].date,r,shifts,{[c.month]:c})!;expect(detail.earning).toMatchObject({hours:'0',base:'100.92',overtime:'0.00',total:'100.92'});expect(detail.lines[0]).toMatchObject({name:'法定带薪假工资',amount:'100.92'});expect(detail.basis).toContain('带薪休假');
+  });
+  it('整月结算已包含带薪假，不在2195元之上重复增加；实际工资覆盖仍优先',()=>{
+    const r=rules(),shifts=[quickShift('2026-10-01',r,'rest')],c={...basic(r),mode:'full' as const};
+    expect(calculate(r,c,shifts).gross).toBe('2195.00');expect(calculate(r,{...c,baseActual:'2100'},shifts).gross).toBe('2100.00');
+  });
+  it('普通休息、无薪假、缺勤、草稿和入职前日期不自动增加法定假工资',()=>{
+    const r=rules(),s=quickShift('2026-10-01',r,'rest'),c=basic(r);
+    for(const shift of [quickShift('2026-10-11',r,'rest'),{...s,type:'unpaidLeave' as const},{...s,type:'absence' as const},{...s,draft:true},{...s,useCalendar:false}])expect(calculate(r,c,[shift]).gross).toBe('0.00');
+    expect(calculate({...r,hireDate:'2026-10-02'},c,[s]).gross).toBe('0.00');expect(calculate(r,c,[]).gross).toBe('0.00');
+  });
+  it('法定日上4小时仍保留8小时带薪基本工资，加班只计实际4小时，休息记录不重复加',()=>{
+    const r=rules(),s=quickShift('2026-10-01',r,'day','4'),rest=quickShift(s.date,r,'rest'),c=basic(r),out=calculate(r,c,[s,rest]);
+    expect(out.items.find(i=>i.id==='base')?.amount).toBe('100.92');expect(out.items.find(i=>i.id.startsWith('ot-holiday'))?.amount).toBe('151.38');expect(out.gross).toBe('252.30');
+    const details=dailyWageDetails(s.date,r,[s,rest],{[c.month]:c})!;expect(money(sum(details.lines.map(i=>i.amount)))).toBe(details.earning.total);expect(details.earning.total).toBe('252.30');
+  });
+  it('明确录入的带薪假按给定小时计工资，保留零出勤、不生加班',()=>{
+    const r=rules(),s={...quickShift('2026-10-09',r,'rest'),type:'paidLeave' as const,paidHours:'4'},c=basic(r);
+    expect(calculate(r,c,[s]).gross).toBe('50.46');expect(dailyEarnings(r,[s],{[c.month]:c}).get(s.date)).toMatchObject({base:'50.46',hours:'0',overtime:'0.00'});
+  });
+});
 describe('基本工资只按已录考勤累计',()=>{
   it('新周期默认累计；空白、草稿和休息均不预加整月底薪或岗位津贴',()=>{
     const r=rules(),c=newCycle('2026-10',r);expect(c.mode).toBe('attendance');

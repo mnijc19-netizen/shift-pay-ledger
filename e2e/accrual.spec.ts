@@ -30,3 +30,14 @@ test('旧默认整月模式自动修正一次，实际金额和历史快照保�
   await page.getByRole('button',{name:'本周期参数',exact:true}).click();const dialog=page.getByRole('dialog');await expect(dialog.getByLabel('基本工资计算方式')).toHaveValue('attendance');await dialog.getByLabel('基本工资计算方式').selectOption('full');await dialog.getByRole('button',{name:'保存并更新预测',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(page.getByTestId('net')).toHaveText('¥2,006.73');
   await page.reload();await page.getByLabel('选择工资周期月份').fill('2026-10');await expect(page.getByTestId('net')).toHaveText('¥2,006.73');expect((await readLedger(page)).audit.filter(a=>a.action==='基本工资改为按已录考勤累计')).toHaveLength(1);
 });
+
+test('法定休假在日历列明带薪工资，结束周期可明确按整月结算，当前周期仍从0累计',async({page})=>{
+  await page.goto('/');await expect(page.getByTestId('earned')).toHaveText('¥0.00');await expect(page.getByRole('region',{name:'完整周期结算提示'})).toHaveCount(0);
+  await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/休息/}).click();
+  for(const date of ['2026-10-01','2026-10-02','2026-10-03']){const cell=page.locator(`[data-date="${date}"]`);await cell.click();await expect(cell.locator('.daily-earnings strong')).toHaveText('¥100.92');}
+  await page.locator('[data-date="2026-10-01"]').click();const dialog=page.getByRole('dialog');await expect(dialog).toContainText('法定带薪假工资');await expect(dialog).toContainText('带薪假，不是加班');await dialog.getByRole('button',{name:'关闭',exact:true}).click();
+  await nav(page,'工资总览');await expect(page.getByTestId('monthly-income').locator('[data-pay-item="base"]')).toContainText('¥403.68');const snapshots=(await readLedger(page)).snapshots;
+  await page.getByRole('button',{name:'按整月结算本期',exact:true}).click();await expect(page.getByTestId('monthly-income').locator('[data-pay-item="base"]')).toContainText('¥2,195.00');await expect(page.getByRole('region',{name:'完整周期结算提示'})).toHaveCount(0);expect((await readLedger(page)).snapshots).toEqual(snapshots);
+  await page.reload();await page.getByLabel('选择工资周期月份').fill('2026-10');await expect(page.getByTestId('monthly-income').locator('[data-pay-item="base"]')).toContainText('¥2,195.00');
+  await page.getByLabel('选择工资周期月份').fill('2026-11');await expect(page.getByTestId('earned')).toHaveText('¥0.00');
+});

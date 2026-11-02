@@ -10,6 +10,6 @@ export function DailyPayDetails({details}:{details:ReturnType<typeof dailyWageDe
     <div className="daily-pay-lines">{lines.map(line=><div className="daily-pay-line" key={line.name}><div><strong>{line.name}</strong><small>{line.formula}</small></div><strong>{currency(line.amount)}</strong></div>)}</div>
     {!lines.length&&<p className="muted small">今天未记录工作收入，不自动补算当天工资。</p>}
     <div className="daily-pay-total"><span>当日合计</span><strong>{currency(earning.total)}</strong></div>
-    <p className="muted small">默认按已录班次累计基本工资，加班费另算。月度奖金、饭卡和扣款见当月工资条。</p>
+    <p className="muted small">已录法定带薪休假保留基本工资，加班费另算。月度奖金、饭卡和扣款见当月工资条。</p>
   </section>;
 }

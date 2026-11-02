@@ -79,11 +79,18 @@ export function analyzeShifts(shifts:Shift[],r:Rules){
   return results;
 }
 
+function paidDayHours(s:Shift,r:Rules){
+  if(s.draft||s.date<r.hireDate)return undefined;
+  if(s.type==='paidLeave')return s.paidHours!==''?D.min(s.paidHours,r.standardHours):dec(r.standardHours);
+  const statutory=r.fuzhouPolicy&&r.system==='standard'&&s.useCalendar&&r.calendar.some(x=>x.date===s.date&&x.type==='statutory');
+  if(statutory&&!['unpaidLeave','absence','pendingRest','onboarding'].includes(s.type))return dec(r.standardHours);
+  return undefined;
+}
 function paidNormalByDate(shifts:Shift[],r:Rules,analyses?:ReturnType<typeof analyzeShifts>){
-  const unique=[...new Map(shifts.filter(s=>!s.draft&&!nonWork(s)).map(s=>[s.id,s])).values()];
+  const unique=[...new Map(shifts.filter(s=>!s.draft).map(s=>[s.id,s])).values()];
   const days=new Map<string,Decimal>(),out=analyses??analyzeShifts(unique,r);
   for(const s of unique){
-    const hours=sum(out.get(s.id)!.segments.map(x=>dec(x.normal).plus(x.type==='holiday'?x.hours:0)));
+    const hours=paidDayHours(s,r)??(nonWork(s)?dec(0):sum(out.get(s.id)!.segments.map(x=>dec(x.normal).plus(x.type==='holiday'?x.hours:0))));
     days.set(s.date,D.min(r.standardHours,(days.get(s.date)??dec(0)).plus(hours)));
   }
   return days;
@@ -101,9 +108,9 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
   const factor=c.mode==='attendance'?D.min(1,normalHours.div(r.standardHours).div(denominator)):c.mode==='partial'?dec(c.paidDays).div(denominator):dec(1);
   const base=c.baseActual!==''?dec(c.baseActual):c.mode==='manual'?dec(0):dec(r.base).mul(factor);
   const baseFormula=c.baseActual!==''?'本期实际基本工资':c.mode==='attendance'?`${r.base} ÷ ${denominator} ÷ ${r.standardHours} × ${normalHours.toString()} 小时（上限 ${r.base} 元）`:c.mode==='partial'?`${r.base} ÷ ${denominator} × ${c.paidDays}`:c.mode==='manual'?'待录入实际基本工资':`${r.base} × 1`;
-  add(basic('base','基本工资',c.baseConfirmed&&(c.baseActual!==''||verified),baseFormula,c.mode==='attendance'?`已录入正常计薪工时 ${normalHours.toString()} 小时；每天最多 ${r.standardHours} 小时；草稿、休息及未录日期不预计；加班工资另算。`:c.mode==='partial'?`应计薪 ${c.expectedDays} 天；实际 ${c.paidDays} 天；折算分母 ${denominator}`:'完整周期工资假设；普通班次正常工时已包含',c.baseActual!==''?'payslip':'auto'),base);
+  add(basic('base','基本工资',c.baseConfirmed&&(c.baseActual!==''||verified),baseFormula,c.mode==='attendance'?`已录正常工时及带薪假合计 ${normalHours.toString()} 小时；每天最多 ${r.standardHours} 小时；已录法定带薪休假保留工资，草稿、普通休息及未录日期不预计；加班另算。`:c.mode==='partial'?`应计薪 ${c.expectedDays} 天；实际 ${c.paidDays} 天；折算分母 ${denominator}`:'整月基本工资结算；排班休息不自动按无薪缺勤扣款，已录实际金额及扣款优先；正常工资不重复添加',c.baseActual!==''?'payslip':'auto'),base);
   if(c.mode==='manual'&&c.baseActual==='')warnings.push('基本工资采用实际录入模式，但本期金额未填写。');
-  if(c.mode==='full')warnings.push('基本工资按完整周期预测；未录入日期不会自动算作已出勤，缺勤扣款需另行确认。');
+  if(c.mode==='full')warnings.push('基本工资使用整月结算口径估算；排班休息不自动扣薪，个人无薪请假或实际病假扣薪需另行录入。');
   if(r.hireDate>bounds.start&&c.mode==='full')warnings.push('入职日处于本周期内，请确认基本工资是否应按部分周期折算。');
   if(r.system!=='standard')warnings.push(r.system==='unknown'?'工时制度尚不确定，当前按手动加班类型估算，需核实公司制度。':'综合计算工时制需核实审批与结算周期；逐班结果仅作估算，可用调整项目修正。');
   if(r.fuzhouPolicy&&r.system==='standard'&&shifts.some(s=>!s.date.startsWith('2026-')))warnings.push('该年份的官方节假日、调休表尚未内置；仅按周末参考，请补充日期后核算，不能认定法定加班费完整。');
@@ -184,12 +191,16 @@ export function dailyEarnings(r:Rules,all:Shift[],cycles:Record<string,Cycle>={}
   for(const s of shifts){
     const day=days.get(s.date)??{base:dec(0),overtime:dec(0),allowances:dec(0),hours:dec(0),pending:false};
     days.set(s.date,day);
-    if(nonWork(s))continue;
+    if(nonWork(s)){
+      const paid=paidDayHours(s,r);
+      if(paid!==undefined){const base=dailyBase(r,cycles[monthOf(s.date,r.cycleEnd)],shifts);day.base=D.min(base,day.base.plus(base.mul(paid).div(r.standardHours)));}
+      continue;
+    }
     const segments=analyses.get(s.id)!.segments,hours=sum(segments.map(x=>x.hours));
     if(!hours.gt(0))continue;
     const c=cycles[monthOf(s.date,r.cycleEnd)],base=dailyBase(r,c,shifts);
     // Calendar amounts allocate normal/paid-holiday hours only; rest-day OT has no extra daily base.
-    const paidNormal=sum(segments.map(x=>dec(x.normal).plus(x.type==='holiday'?x.hours:'0')));
+    const paidNormal=paidDayHours(s,r)??sum(segments.map(x=>dec(x.normal).plus(x.type==='holiday'?x.hours:'0')));
     day.base=r.fuzhouPolicy||c?.mode==='attendance'?D.min(base,day.base.plus(base.mul(D.min(paidNormal,r.standardHours)).div(r.standardHours))):base;
     day.hours=day.hours.plus(hours);
     day.overtime=day.overtime.plus(sum(segments.map(x=>x.raw)));
@@ -211,11 +222,11 @@ export interface DailyWageLine {name:string;formula:string;amount:string}
 export function dailyWageDetails(date:string,r:Rules,all:Shift[],cycles:Record<string,Cycle>={}){
   const earning=dailyEarnings(r,all,cycles).get(date);
   if(!earning)return undefined;
-  const shifts=[...new Map(all.filter(s=>s.date===date&&!s.draft&&!nonWork(s)).map(s=>[s.id,s])).values()];
+  const records=[...new Map(all.filter(s=>s.date===date&&!s.draft).map(s=>[s.id,s])).values()],shifts=records.filter(s=>!nonWork(s));
   const analyses=analyzeShifts(shifts,r),segments=shifts.flatMap(s=>analyses.get(s.id)!.segments),lines:DailyWageLine[]=[];
-  const paidNormal=D.min(r.standardHours,sum(segments.map(s=>dec(s.normal).plus(s.type==='holiday'?s.hours:'0'))));
+  const paidNormal=sum([...paidNormalByDate(records,r).values()]),paidRest=records.some(s=>nonWork(s)&&paidDayHours(s,r)?.gt(0));
   const c=cycles[monthOf(date,r.cycleEnd)],accrued=c?c.mode==='attendance':r.fuzhouPolicy,rate=dailyBase(r,c,all).div(r.standardHours),uncapped=money(rate.mul(paidNormal),r.rounding);
-  if(dec(earning.base).gt(0)||accrued&&paidNormal.gt(0))lines.push({name:segments.some(s=>s.type==='holiday')?'基本工资分摊（带薪节日）':'正常工时工资',formula:r.fuzhouPolicy||accrued?`${paidNormal.toString()} 小时 × ${rate.toFixed(5)} 元/小时`:'按本周期日工资分母折算',amount:accrued?uncapped:earning.base});
+  if(dec(earning.base).gt(0)||accrued&&paidNormal.gt(0))lines.push({name:paidRest?(records.some(s=>s.type==='paidLeave')?'带薪假工资':'法定带薪假工资'):segments.some(s=>s.type==='holiday')?'基本工资分摊（带薪节日）':'正常工时工资',formula:r.fuzhouPolicy||accrued?`${paidNormal.toString()} 小时 × ${rate.toFixed(5)} 元/小时${paidRest?'（带薪假，不是加班）':''}`:'按本周期日工资分母折算',amount:accrued?uncapped:earning.base});
   if(accrued&&!dec(uncapped).eq(earning.base))lines.push({name:'月基本工资上限调整',formula:`本周期累计基本工资不超过 ${c?.baseActual||r.base} 元；加班费不受此上限影响`,amount:money(dec(earning.base).minus(uncapped),r.rounding)});
   for(const [type,name,multiplier] of [['normal','平日加班费',r.normalRate],['rest','休息日加班费',r.restRate],['holiday','法定节假日加班费',r.holidayRate]] as const){
     const group=segments.filter(s=>s.type===type),hours=sum(group.map(s=>s.overtime));
@@ -235,7 +246,7 @@ export function dailyWageDetails(date:string,r:Rules,all:Shift[],cycles:Record<s
   const difference=dec(earning.total).minus(sum(lines.map(l=>l.amount)));
   if(!difference.isZero())lines.push({name:'分币取整差额',formula:'合计保留精度后取整到分',amount:money(difference)});
   const types=[...new Set(segments.map(s=>s.type))];
-  return {date,earning,lines,basis:types.map(t=>({normal:'普通工作日',rest:'休息日 · 未补休',holiday:'法定节假日',compensated:'已补休',unknown:'类型待确认'})[t]).join(' / ')||'未录入工作时段'};
+  return {date,earning,lines,basis:types.map(t=>({normal:'普通工作日',rest:'休息日 · 未补休',holiday:'法定节假日',compensated:'已补休',unknown:'类型待确认'})[t]).join(' / ')||(paidRest?'带薪休假 · 未出勤':'未录入工作时段')};
 }
 
 export function comparePayslip(result:PayResult,payslip:Payslip){
