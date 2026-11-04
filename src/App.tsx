@@ -3,7 +3,7 @@ import { LayoutDashboard, CalendarDays, SlidersHorizontal, FileCheck2, Database,
 import type { State } from './domain/model';
 import { stateSchema, uid } from './domain/model';
 import { newCycle } from './domain/seed';
-import { calculate, splitShift, validateAttendance } from './domain/engine';
+import { calculate, splitShift, validateAttendance, attendanceTotals } from './domain/engine';
 import { monthOf, period } from './domain/dates';
 import { persist, parseBackup, upgradeSavedState, download, ledgerCsv, attendanceCsv, payslipCsv, storageErrorMessage, exportLegacyBackup } from './domain/storage';
 import type { LoadResult } from './domain/storage';
@@ -27,6 +27,7 @@ export default function App({initial}:{initial:LoadResult}){
   const activeState=snapshot?{...state,rules:snapshot.rules,shifts:snapshot.shifts,payslips:snapshot.payslip?[snapshot.payslip]:[]}:state;
   const cycle=snapshot?.cycle??state.cycles[month]??newCycle(month,state.rules);
   const result=useMemo(()=>snapshot?.result??calculate(state.rules,cycle,state.shifts),[snapshot,state.rules,cycle,state.shifts]);
+  const allTimeAttendance=useMemo(()=>attendanceTotals(state.shifts,state.rules),[state.shifts,state.rules]);
   const enqueue=<T,>(operation:()=>Promise<T>):Promise<T>=>{
     setPending(n=>n+1);
     const task=queue.current.then(operation).finally(()=>setPending(n=>n-1));
@@ -53,7 +54,7 @@ export default function App({initial}:{initial:LoadResult}){
     <main><div className="period-toolbar"><div><span className="period-label">工资周期</span><input aria-label="选择工资周期月份" type="month" value={month} min="2000-01" max="2100-12" onChange={e=>{if(e.target.value){setMonth(e.target.value);setSnapshotId('');}}}/><span className="period-range">{bounds.start.slice(5).replace('-','/')} — {bounds.end.slice(5).replace('-','/')}</span></div><button className="button secondary small-button" onClick={exportMonth}><Download size={15}/>导出工资 CSV</button></div>
     {storageError&&<Notice>{storageError}<div className="button-row"><button className="button secondary small-button" onClick={()=>download('班薪记-原始数据.txt',initial.raw,'text/plain')}>导出原始数据</button><button className="button secondary small-button" onClick={()=>setDataOpen(true)}>恢复备份</button><button className="button secondary small-button" onClick={()=>window.location.reload()}>重新打开账本</button></div></Notice>}
     {snapshot&&<div className="snapshot-banner"><History size={18}/><span>正在查看 {snapshot.month} 历史快照 · 规则 v{snapshot.rules.version} · {new Date(snapshot.savedAt).toLocaleString('zh-CN')}</span><button className="text-button" onClick={()=>setSnapshotId('')}><ArrowLeft size={14}/>返回实时预测</button></div>}
-    {page==='overview'&&<Overview state={activeState} cycle={cycle} result={result} commit={commit} onSnapshot={saveSnapshot} onCompare={()=>goto('reconcile')} readonly={!!snapshot}/>}
+    {page==='overview'&&<Overview state={activeState} cycle={cycle} result={result} totalAttendance={allTimeAttendance} commit={commit} onSnapshot={saveSnapshot} onCompare={()=>goto('reconcile')} readonly={!!snapshot}/>}
     {page==='attendance'&&<Attendance key={month} state={state} month={month} commit={commit}/>}
     {page==='rules'&&<RuleSettings state={state} commit={commit}/>}
     {page==='reconcile'&&<Reconcile key={month} state={state} month={month} result={result} commit={commit}/>}

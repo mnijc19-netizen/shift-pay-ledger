@@ -79,6 +79,18 @@ export function analyzeShifts(shifts:Shift[],r:Rules){
   return results;
 }
 
+export interface AttendanceTotals {days:number;hours:string;shifts:number}
+export function attendanceTotals(all:Shift[],r:Rules,bounds?:{start:string;end:string}):AttendanceTotals{
+  const records=[...new Map(all.filter(s=>!s.draft&&!nonWork(s)&&(!bounds||s.date>=bounds.start&&s.date<=bounds.end)).map(s=>[s.id,s])).values()];
+  const days=new Set<string>();let hours=dec(0),shifts=0;
+  for(const s of records){
+    const worked=sum(splitShift(s,r).segments.map(x=>x.hours));
+    if(!worked.gt(0))continue;
+    days.add(s.date);hours=hours.plus(worked);shifts++;
+  }
+  return {days:days.size,hours:hours.toString(),shifts};
+}
+
 function paidDayHours(s:Shift,r:Rules){
   if(s.draft||s.date<r.hireDate)return undefined;
   if(s.type==='paidLeave')return s.paidHours!==''?D.min(s.paidHours,r.standardHours):dec(r.standardHours);

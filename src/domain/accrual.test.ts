@@ -1,10 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { calculate, dailyEarnings, dailyWageDetails, money, sum } from './engine';
+import { calculate, dailyEarnings, dailyWageDetails, money, sum, attendanceTotals } from './engine';
 import { initialState, defaultRules, newCycle, quickShift } from './seed';
 import { parseBackup, upgradeSavedState } from './storage';
 
 const rules=()=>structuredClone(defaultRules);
 const basic=(r=rules())=>({...newCycle('2026-10',r),postEnabled:false});
+describe('出勤天数与总工时',()=>{
+  it('本周期按开始上班日期筛选，全部累计覆盖所有周期，跨夜只计开始日一天',()=>{
+    const r=rules(),shifts=[quickShift('2026-09-25',r,'day'),quickShift('2026-09-26',r,'night'),quickShift('2026-10-25',r,'night'),quickShift('2026-10-26',r,'day')];
+    expect(attendanceTotals(shifts,r,{start:'2026-09-26',end:'2026-10-25'})).toEqual({days:2,hours:'24',shifts:2});expect(attendanceTotals(shifts,r)).toEqual({days:4,hours:'48',shifts:4});
+  });
+  it('同一天多个班段只计一天，重复ID不重复累计小时',()=>{
+    const r=rules(),a=quickShift('2026-10-09',r,'day','4'),b={...quickShift(a.date,r,'day','8'),start:a.date+'T13:00',end:a.date+'T21:00'};
+    expect(attendanceTotals([a,b,a],r)).toEqual({days:1,hours:'12',shifts:2});
+  });
+  it('休息、法定带薪假、请假、缺勤、入职、草稿和0小时均不算实际上班',()=>{
+    const r=rules(),rest=quickShift('2026-10-01',r,'rest');
+    const nonwork=(['rest','paidLeave','unpaidLeave','absence','pendingRest','onboarding'] as const).map(type=>({...rest,id:type,type}));
+    expect(attendanceTotals([...nonwork,{...quickShift('2026-10-02',r,'day'),draft:true},{...quickShift('2026-10-03',r,'night'),paidHours:'0'}],r)).toEqual({days:0,hours:'0',shifts:0});
+  });
+  it('按已录计薪工时统计，手填11.5小时优先，非计薪饭休只在未手填时扣除',()=>{
+    const r=rules(),a={...quickShift('2026-10-08',r,'day'),paidHours:'11.5',mealMinutes:'30'},b={...quickShift('2026-10-09',r,'day'),paidHours:'',mealMinutes:'30'};
+    expect(attendanceTotals([a,b],r)).toEqual({days:2,hours:'23',shifts:2});
+  });
+  it('新账本统计只从考勤读取，不把工资快照再加一次',()=>{
+    const s=initialState();expect(s.snapshots.length).toBeGreaterThan(0);expect(attendanceTotals(s.shifts,s.rules)).toEqual({days:3,hours:'31.5',shifts:3});expect(attendanceTotals([],s.rules)).toEqual({days:0,hours:'0',shifts:0});
+  });
+});
 describe('已录法定带薪假保留基本工资',()=>{
   it('国庆1至3日休假累计24小时带薪工资，不虚构出勤或加班',()=>{
     const r=rules(),c=basic(r),shifts=['2026-10-01','2026-10-02','2026-10-03'].map(d=>quickShift(d,r,'rest')),out=calculate(r,c,shifts);
