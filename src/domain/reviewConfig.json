@@ -1,0 +1,9 @@
+{
+  "repository": "mnijc19-netizen/shift-pay-private-ledger",
+  "publicKey": {
+    "kty": "RSA",
+    "n": "4HykzLjuw2ieSymZIwkmuOb9A8TN9hXc64e2oBxwmtrno-oj6kmyF6S01P3fHFjFv0JLfff08gfATnpA3cFTEs0rVBTWKSI4f59Mt_ytuzta9Z4IU3dGNxjZzOZDIHUcdcduCcbscMkXEbl90D5ZLyAsrNCqMJTie9pazO4B7T-gySbNCwBxb_cSeyDY68IZtwC6wEaTfU4KxME4X1slMWNmJ5ysIPEFCf24taFUlDwdo68XiToPPB55kRe9NogWmLTvx_HF4Uy82OqZo83wOmpdbQWgTQzAQRbvYyLA-foFE8r82eWSd6uHTXhHbEhEhM8I9ZG75CT2JvI5bPwJ5J4ZX8rXw4ruYdz6oYcS0aGhlxif6Oa1OdFIl7NSejdEOHTIv09pJ6oUBVhjxjaTOfbZKkb0p2apCDDjUBknMPUxoFFztT8iY_S_2Veh1caNz9dsLnvDWOpxkuc2LmgqByZH9w1SkzePx2wqaQC0mgwwPVW9NpzEC1nLdlpimmHB",
+    "e": "AQAB"
+  },
+  "repositoryId": 1447139541
+}

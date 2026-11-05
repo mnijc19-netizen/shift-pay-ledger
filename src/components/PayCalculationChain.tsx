@@ -30,6 +30,6 @@ export function PayCalculationChain({result,accrued=false}:{result:PayResult;acc
         <p className="pay-chain-note">{tax.length?'个税使用本期录入金额。':'个税尚未录入，实际有个税时还要扣除。'}未填写的扣款不代表实际为零。{accrued&&'五险一金按月参考；累计收入不足时出现负数，不代表欠款。'}</p>
       </div>
     </div>
-    <p className="pay-chain-footnote">饭卡400元另存饭卡，不计应发或实发；夜班餐补已加进工资。{accrued?'基本工资累计已录正常工时及带薪假，加班另算；已结束周期需核对整月结算口径。':'基本工资按本周期计一次，日历中的每日分摊不再重复相加。'}</p>
+    <p className="pay-chain-footnote">饭卡与其他非现金福利单列；夜班餐补计入现金工资。{accrued?'基本工资累计已录正常工时及带薪假，加班另算；已结束周期需核对整月结算口径。':'基本工资按本周期计一次，日历中的每日分摊不再重复相加。'}</p>
   </section>;
 }

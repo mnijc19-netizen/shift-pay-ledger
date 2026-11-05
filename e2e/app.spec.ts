@@ -21,7 +21,7 @@ test('点日期直接记 12h，提前下班只改工时，日历显示当天收�
 });
 test('历史工资条计算与核对、实际到账独立记录',async({page})=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-09');
-  await expect(page.getByTestId('net')).toHaveText('¥715.42');await expect(page.locator('.ledger-table tbody tr')).toHaveCount(7);await expect(page.locator('.metric').filter({hasText:'工资条实际到账'})).toContainText('待录入');
+  await expect(page.getByTestId('net')).toHaveText('¥715.42');await expect(page.getByTestId('period-actual')).toHaveText('待录入');await page.getByRole('button',{name:'工资明细',exact:true}).click();await expect(page.locator('.ledger-table tbody tr')).toHaveCount(7);
   await nav(page,'工资条核对');await expect(page.locator('.reconcile-table tbody tr')).toHaveCount(7);await expect(page.locator('.reconcile-table tbody .badge.green')).toHaveCount(7);await expect(page.getByLabel('实际银行到账金额')).toHaveValue('');expect(errors).toEqual([]);
 });
 test('录入、修改、删除考勤；刷新仍保留；工资快照保持原规则',async({page})=>{
@@ -49,10 +49,11 @@ test('375px手机四个页面和编辑弹窗无水平溢出',async({page})=>{
   for(const title of ['工资总览','考勤日历','工资规则','工资条核对']){await mobileNav.getByRole('button',{name:title,exact:true}).click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);}
   await mobileNav.getByRole('button',{name:'考勤日历',exact:true}).click();await page.getByRole('button',{name:'新增考勤',exact:true}).click();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.getByRole('button',{name:'关闭',exact:true}).click();await mobileNav.getByRole('button',{name:'工资总览',exact:true}).click();await page.screenshot({path:'test-results/mobile.png',fullPage:true});expect(errors).toEqual([]);
 });
-test('1440px桌面页面渲染与截图',async({page})=>{await page.goto('/');await expect(page.getByRole('heading',{name:'每一班，都有数。'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'test-results/desktop.png',fullPage:true});});
+test('1440px桌面页面渲染与截图',async({page})=>{await page.goto('/');await expect(page.getByRole('heading',{name:'工资总览。'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'test-results/desktop.png',fullPage:true});});
 
 test('福州参考扣款内置，规则默认折叠，实际扣款逐项覆盖',async({page})=>{
   await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');
+  await page.getByRole('button',{name:'工资明细',exact:true}).click();
   for(const [name,amount] of [['养老保险','366.32'],['医疗保险','91.58'],['失业保险','22.90'],['住房公积金','110.00']]){await expect(page.locator('.ledger-table tbody tr').filter({hasText:name})).toContainText(amount);}
   await nav(page,'工资规则');await expect(page.getByRole('heading',{name:'福州标准，已经算在里面'})).toBeVisible();await expect(page.getByLabel('月基本工资（元）',{exact:false})).not.toBeVisible();await page.getByText('查看标准依据与计算差异',{exact:true}).click();await expect(page.locator('.policy-source-links a')).toHaveCount(14);
   await page.setViewportSize({width:375,height:812});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.getByText('查看标准依据与计算差异',{exact:true}).click();await page.screenshot({path:'test-results/fuzhou-rules-mobile.png',fullPage:true});
@@ -78,7 +79,7 @@ test('已有账本刷新后改用上班日标准，10月6日夜班全部用6日�
 
 test('日明细列公式，月工资条分收入扣款和饭卡，绩效修改不重复相加',async({page})=>{
   await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await nav(page,'考勤日历');await page.getByRole('group',{name:'快速录入班次'}).getByRole('button',{name:/夜班/}).click();await page.locator('[data-date="2026-10-09"]').click();await page.locator('[data-date="2026-10-09"]').click();const d=page.getByRole('dialog');await expect(d.getByRole('heading',{name:'当日工资明细'})).toBeVisible();await expect(d.locator('.daily-pay-line').filter({hasText:'正常工时工资'})).toContainText('8 小时 × 12.61494');await expect(d.locator('.daily-pay-line').filter({hasText:'平日加班费'})).toContainText('4 小时 × 12.61494 元 × 1.5 倍');await expect(d.locator('.daily-pay-total')).toContainText('¥201.61');await d.getByRole('button',{name:'关闭',exact:true}).click();
-  await nav(page,'工资总览');const income=page.getByTestId('monthly-income');await expect(income.locator('[data-pay-item="meal-month"]')).toHaveCount(0);const night=income.locator('tbody tr').filter({hasText:'夜班餐补'});await expect(night).toHaveCount(1);await expect(night).toContainText('¥50.00');await expect(page.getByRole('region',{name:'饭卡和非现金福利'})).toContainText('¥400.00');await expect(page.getByTestId('net')).toHaveText('¥23.46');
+  await nav(page,'工资总览');await page.getByRole('button',{name:'工资明细',exact:true}).click();const income=page.getByTestId('monthly-income');await expect(income.locator('[data-pay-item="meal-month"]')).toHaveCount(0);const night=income.locator('tbody tr').filter({hasText:'夜班餐补'});await expect(night).toHaveCount(1);await expect(night).toContainText('¥50.00');await expect(page.getByRole('region',{name:'饭卡和非现金福利'})).toContainText('¥400.00');await expect(page.getByTestId('net')).toHaveText('¥23.46');
   const add=async(amount:string)=>{await page.getByRole('button',{name:'记录绩效 / 其他收入'}).click();await page.getByRole('dialog').getByLabel('本期实际金额',{exact:false}).fill(amount);await page.getByRole('button',{name:'保存本月加项'}).click();};
   await add('600');await expect(page.getByTestId('net')).toHaveText('¥623.46');await add('350');await expect(page.getByTestId('net')).toHaveText('¥373.46');await expect(income.locator('tbody tr').filter({hasText:'绩效奖金'})).toHaveCount(1);
   await page.getByRole('button',{name:'记录绩效 / 其他收入'}).click();const extra=page.getByRole('dialog');await extra.getByLabel('收入类型').selectOption('extra');await extra.getByLabel('项目名称').fill('生日礼金');await extra.getByLabel('本期实际金额',{exact:false}).fill('120');await page.getByRole('button',{name:'保存本月加项'}).click();await expect(page.getByTestId('net')).toHaveText('¥493.46');await page.reload();await expect(page.getByTestId('net')).toHaveText('¥493.46');

@@ -81,8 +81,8 @@ test('损坏的旧账本不覆盖原文或创建空数据库账本',async({page}
 });
 
 test('工资计算链金额随实际个人扣款、个税和奖金更新，饭卡不计工资',async({page})=>{
-  await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');const chain=page.getByRole('region',{name:'工资计算链'});
-  await expect(chain.getByTestId('chain-gross')).toHaveText('¥408.05');await expect(chain.getByTestId('chain-deductions')).toHaveText('¥590.80');await expect(chain.getByTestId('chain-net')).toHaveText('＝ -¥182.75');await expect(chain).toContainText('待录入，暂未计');await expect(chain).toContainText('单位承担部分不扣个人工资');await expect(chain).toContainText('饭卡400元');
+  await page.goto('/');await page.getByLabel('选择工资周期月份').fill('2026-10');await page.getByRole('button',{name:'工资明细',exact:true}).click();await page.getByText('查看工资计算过程',{exact:true}).click();const chain=page.getByRole('region',{name:'工资计算链'});
+  await expect(chain.getByTestId('chain-gross')).toHaveText('¥408.05');await expect(chain.getByTestId('chain-deductions')).toHaveText('¥590.80');await expect(chain.getByTestId('chain-net')).toHaveText('＝ -¥182.75');await expect(chain).toContainText('待录入，暂未计');await expect(chain).toContainText('单位承担部分不扣个人工资');await expect(chain).toContainText('饭卡与其他非现金福利单列');
   await page.getByRole('button',{name:'本周期参数',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.getByText('五险一金与实际扣款',{exact:true}).click();
   await dialog.locator('.deduction-row').filter({hasText:'养老保险'}).getByLabel('实际金额',{exact:true}).fill('400');await dialog.locator('.deduction-row').filter({hasText:'个人所得税'}).getByLabel('实际金额',{exact:true}).fill('50');await dialog.getByRole('button',{name:'保存并更新预测',exact:true}).click();
   await expect(chain.getByTestId('chain-deductions')).toHaveText('¥674.48');await expect(chain.getByTestId('chain-net')).toHaveText('＝ -¥266.43');await expect(chain).not.toContainText('待录入，暂未计');

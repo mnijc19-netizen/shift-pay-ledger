@@ -114,3 +114,45 @@
 
 .attendance-summary{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}.attendance-summary-panel{min-width:0}.attendance-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.attendance-summary-heading h2{display:flex;align-items:center;gap:8px;font-size:14px;margin:0}.attendance-summary-heading>span{color:var(--muted);font-size:10px}.attendance-summary-values{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:22px 0 16px}.attendance-summary-values>div{min-width:0}.attendance-summary-values>div>span{display:block;color:var(--muted);font-size:11px;margin-bottom:9px}.attendance-summary-values strong{font-size:29px;line-height:1.3;color:var(--deep);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.attendance-summary-values small{font-size:12px;font-weight:400;color:var(--muted)}.attendance-summary-panel>p{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin:0;color:var(--muted);font-size:10px;line-height:1.9}
 @media(max-width:700px){.attendance-summary{grid-template-columns:1fr;gap:12px;margin-bottom:18px}.attendance-summary-heading h2{font-size:13px}.attendance-summary-values{margin:17px 0 12px;gap:16px}.attendance-summary-values strong{font-size:28px}.attendance-summary-values>div>span{font-size:11px}.attendance-summary-values small{font-size:11px}}
+
+/* Overview: the current cycle, cumulative ledger and calculation details have separate views. */
+.pay-overview .overview-title{margin-bottom:18px}
+.overview-nav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+.overview-nav nav{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border:1px solid var(--border);border-radius:12px;background:var(--cream)}
+.overview-nav nav button{display:flex;justify-content:center;align-items:center;gap:7px;background:transparent;border:1px solid transparent;border-radius:8px;padding:9px 13px;color:var(--muted);font-size:12px;font-weight:650;white-space:nowrap;cursor:pointer}
+.overview-nav nav button[aria-pressed=true]{background:var(--deep);color:#fff;border-color:var(--deep)}
+.overview-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.overview-panel{display:grid;gap:18px;min-width:0}
+.overview-period-grid{display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,1fr);gap:18px}
+.overview-period-grid>*{min-width:0}
+.overview-hero .hero-amount{font-size:clamp(30px,5.2vw,54px);line-height:1.12;overflow-wrap:anywhere}
+.overview-hero .hero-bottom{flex-wrap:wrap}
+.overview-hero .hero-bottom .text-button{margin-left:auto;color:inherit}
+.overview-hero-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.overview-hero-facts>div{min-width:0;padding-top:12px;border-top:1px solid #ffffff30}
+.overview-hero-facts dt{font-size:11px;color:inherit;opacity:.78}
+.overview-hero-facts dd{margin:5px 0 0;font-size:17px;font-weight:750;overflow-wrap:anywhere}
+.overview-period-side{display:flex;flex-direction:column;justify-content:space-between}
+.overview-actual{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-top:17px;border-top:1px solid var(--border)}
+.overview-actual>div{display:grid;gap:6px}.overview-actual>div>span{color:var(--muted);font-size:12px}.overview-actual strong{font-size:22px;color:var(--deep)}
+.settlement-card p{line-height:1.8}
+.lifetime-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.lifetime-head h2{font-size:24px;margin:3px 0 6px}.lifetime-head p{margin:0;font-size:12px}
+.lifetime-attendance{display:flex;gap:8px;flex-wrap:wrap}.lifetime-attendance span{display:flex;align-items:center;gap:5px;background:var(--cream);border:1px solid var(--border);border-radius:9px;padding:7px 10px;font-size:12px;color:var(--muted)}.lifetime-attendance strong{color:var(--deep)}
+.lifetime-metrics{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px}
+.lifetime-metrics .card{display:flex;flex-direction:column;gap:9px;min-width:0}
+.lifetime-metrics .card>span{font-size:12px;color:var(--muted)}.lifetime-metrics strong{font-size:clamp(20px,3vw,31px);line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--deep)}.lifetime-metrics small{font-size:11px;color:var(--muted);line-height:1.55}
+.lifetime-metrics .lifetime-primary{background:var(--cream);border-color:var(--green)}
+.lifetime-ledger .section-heading{margin-bottom:10px}.lifetime-periods{display:grid}.lifetime-row{display:grid;grid-template-columns:minmax(0,1.05fr) repeat(3,minmax(0,1fr));align-items:center;gap:14px;padding:14px 0;border-top:1px solid var(--border)}.lifetime-period{align-self:stretch;justify-content:flex-start;gap:8px;text-align:left}.lifetime-period span,.lifetime-row-amount{display:grid;gap:4px;min-width:0}.lifetime-period small,.lifetime-row-amount>span,.lifetime-row-amount>small{font-size:11px;color:var(--muted)}.lifetime-row-amount strong{color:var(--deep);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.lifetime-note{margin:14px 0 0;line-height:1.65}
+.overview-details-grid .warnings{margin:0}
+.overview-formula{border:1px solid var(--border);border-radius:12px;background:var(--cream);min-width:0}
+.overview-formula>summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;color:var(--deep);font-weight:700;list-style:none}
+.overview-formula>summary::-webkit-details-marker{display:none}
+.overview-formula>.pay-chain{margin:0;border-radius:0 0 12px 12px}
+@media(max-width:800px){.overview-period-grid{grid-template-columns:1fr}.overview-hero-facts{margin:15px 0}.lifetime-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.lifetime-metrics .lifetime-primary{grid-column:1/-1}.lifetime-metrics .lifetime-primary strong{font-size:30px}}
+@media(max-width:480px){.pay-overview .overview-title{margin-bottom:12px}.overview-nav{gap:9px;margin-bottom:13px}.overview-nav nav{width:100%}.overview-nav nav button{padding:8px 4px;font-size:11px;gap:5px}.overview-nav nav button svg{width:14px}.overview-actions .button{font-size:11px;padding:6px 8px}.overview-panel,.overview-period-grid{gap:12px}.overview-hero .hero-bottom .text-button{font-size:11px}.lifetime-metrics{gap:8px}.lifetime-row{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.lifetime-period{grid-column:1/-1}.lifetime-row-amount strong{font-size:13px}}
+
+[data-theme=dark] .overview-nav nav button[aria-pressed=true]{color:#142819}
+.review-steps{padding-left:20px;line-height:1.8;font-size:13px}.review-steps code{overflow-wrap:anywhere}.review-steps a{color:var(--deep);text-underline-offset:3px}.review-token{display:grid;gap:5px;margin:12px 0}.review-token input{width:100%;min-width:0}.private-review .button-row{margin-top:12px}.review-status{border:1px solid var(--border);padding:12px;border-radius:8px;background:var(--cream);line-height:1.6}.review-status small{display:block}.modal-tabs{flex-wrap:wrap}
+
+.review-indicator{border:0;background:transparent;padding:0;cursor:pointer;font-family:inherit}
