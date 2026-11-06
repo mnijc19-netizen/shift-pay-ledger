@@ -81,8 +81,8 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
   };
   const deleteRecord=async(s:Shift)=>{if(await commit('删除考勤',s.note||'用户删除记录',old=>({...old,shifts:old.shifts.filter(x=>x.id!==s.id)}))){setEdit(null);setQuick(null);}};
   return <>
-    <div className="page-title">
-      <div><span className="eyebrow">ATTENDANCE</span><h1>今天这一班，点一下就记好</h1><p>选白班或夜班，再点日期。默认 12 小时，吃饭不扣工时。</p></div>
+    <div className="page-title attendance-title">
+      <div><h1>考勤日历</h1><p>选班次，再点日期。默认 12 小时。</p></div>
       <div className="button-row">
         <button className="button secondary" onClick={()=>setEdit(newShift(today.startsWith(view)?today:view+'-01',r))}>详细录入</button>
         <button className="button primary" onClick={()=>setQuick({date:today.startsWith(view)?today:view+'-01'})}><Plus size={18}/>新增考勤</button>
@@ -124,7 +124,7 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
               {earning&&<div className={'daily-earnings '+(earning.pending?'pending':'')} title={'基本工资按日展示 '+currency(earning.base)+' + 加班 '+currency(earning.overtime)+' + 本班津贴 '+currency(earning.allowances)+(earning.pending?'；加班类型待确认':'')}>
                 <small>{earning.pending?'加班待定':'预计收入'}</small><strong>{currency(earning.total)}</strong>
               </div>}
-              {!records.length&&<span className="unrecorded">+ 记{quickType==='night'?'夜班':quickType==='rest'?'休息':'白班'}</span>}
+              {!records.length&&<span className="unrecorded"><Plus size={13}/><span>记{quickType==='night'?'夜班':quickType==='rest'?'休息':'白班'}</span></span>}
               {records.length>1&&<span className="calendar-record-count">共 {records.length} 条，见下方</span>}
             </button>;
           })}
