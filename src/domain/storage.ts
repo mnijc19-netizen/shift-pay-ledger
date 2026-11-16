@@ -91,7 +91,7 @@ export async function load():Promise<LoadResult>{
     return {state:initialState(),error:'本地账本暂时无法打开，原记录未覆盖。'+storageErrorMessage(error),raw};
   }
 }
-export async function persist(state:State){await writeStoredLedger(state);}
+export async function persist(state:State,expected?:State){await writeStoredLedger(state,undefined,expected);}
 export async function exportLegacyBackup(){
   const raw=await readStoredRecord(LEGACY_BACKUP_KEY);
   if(typeof raw!=='string')throw new Error('没有旧版迁移备份；请使用完整备份导出当前账本。');

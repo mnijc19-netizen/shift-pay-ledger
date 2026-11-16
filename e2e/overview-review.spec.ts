@@ -104,6 +104,7 @@ test('私有核对按保存上传密文，离线时仍保存本机，关闭后�
     if(offline)return route.abort('internetdisconnected');
     const url=new URL(route.request().url());
     if(!url.pathname.includes('/contents/'))return route.fulfill({json:{id:1447139541,full_name:'mnijc19-netizen/shift-pay-private-ledger',private:true,visibility:'private',default_branch:'main'}});
+    if(url.pathname.includes('/contents/inbox/'))return route.fulfill({status:404,json:{}});
     if(route.request().method()==='GET')return copies.length?route.fulfill({json:{sha:'existing'}}):route.fulfill({status:404,json:{}});
     const body=route.request().postDataJSON();
     copies.push(JSON.parse(Buffer.from(body.content,'base64').toString('utf8')));

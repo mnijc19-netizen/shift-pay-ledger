@@ -63,14 +63,14 @@ export function usePrivateReview(state:State, available:boolean) {
   return {connected:!!connection,device:connection?.device,status,connect,disconnect,retry:()=>retryNow(x=>x+1)};
 }
 
-export function PrivateReview({review,available}:{review:ReturnType<typeof usePrivateReview>;available:boolean}) {
+export function PrivateReview({review,available,inboxStatus,onCheckInbox}:{review:ReturnType<typeof usePrivateReview>;available:boolean;inboxStatus:string;onCheckInbox:()=>void}) {
   const [token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const {connected,device,status}=review;
   const label=status.mode==='success'?'已更新':status.mode==='error'?'未同步':status.mode==='uploading'?'上传中':'等候上传';
   return <section className="private-review" aria-label="私有核对设置">
     <div className="section-heading"><h2>私有核对</h2><Badge tone={connected&&status.mode==='success'?'green':undefined}>{connected?label:'未开启'}</Badge></div>
-    <p className="muted">开启后，每次保存会自动发送加密的完整账本副本，供后续核对。各设备仍各自录入，不会从副本回写。</p>
-    {connected&&<div className="review-status" aria-live="polite"><strong>{label}</strong> {status.message&&<span>{status.message}</span>}<small className="muted">设备编号：{device?.slice(0,8)} · 副本与本机账本独立</small></div>}
+    <p className="muted">保存考勤后自动上传加密副本。打开工资总览时会检查新更新，核对后写入本机账本。</p>
+    {connected&&<div className="review-status" aria-live="polite"><strong>上传{label}</strong> {status.message&&<span>{status.message}</span>}<small className="muted">设备编号 {device?.slice(0,8)} · {inboxStatus||'接收已核对的账本更新'}</small></div>}
     {(!connected||status.mode==='error')&&available&&<form onSubmit={async e=>{
       e.preventDefault();setBusy(true);setError('');
       try {await review.connect(token.trim());setToken('');}
@@ -86,7 +86,7 @@ export function PrivateReview({review,available}:{review:ReturnType<typeof usePr
       <button className="button primary small-button" disabled={busy}>{busy?'正在连接…':connected?'更新授权':'开启自动核对'}</button>
     </form>}
     {error&&<p role="alert" className="muted">{error}</p>}
-    {connected&&<div className="button-row"><button className="button secondary small-button" disabled={status.mode==='uploading'||!available} onClick={review.retry}>重试上传</button><button className="button secondary small-button" disabled={busy} onClick={()=>{try{review.disconnect();setError('');}catch{setError('无法清除本机授权，请在 GitHub 撤销该令牌。');}}}>关闭自动上传</button></div>}
-    {connected&&<p className="muted small">关闭后停止本机上传。已上传的加密副本仍保存在你的私有仓库。</p>}
+    {connected&&<div className="button-row"><button className="button secondary small-button" disabled={!available} onClick={onCheckInbox}>检查更新</button><button className="button secondary small-button" disabled={status.mode==='uploading'||!available} onClick={review.retry}>重试上传</button><button className="button secondary small-button" disabled={busy} onClick={()=>{try{review.disconnect();setError('');}catch{setError('无法清除本机授权，请在 GitHub 撤销该令牌。');}}}>关闭自动上传</button></div>}
+    {connected&&<p className="muted small">关闭后暂停本机收发，已有加密副本仍保存在私有仓库。</p>}
   </section>;
 }

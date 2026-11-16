@@ -158,9 +158,10 @@ e2e/app.spec.ts    浏览器交互验收
 
 ### 私有核对
 
-在常用设备打开「数据与备份 → 私有核对」。首次需在 GitHub 创建细粒度访问令牌：只选私有仓库 `shift-pay-private-ledger`，Contents 允许 Read and write。只在班薪记设置内粘贴令牌。令牌保存在本设备的浏览器内，不随 JSON 备份上传。开启后每次保存先写本机，之后浏览器把完整账本压缩并加密成该设备的私有副本。上传失败不会丢失考勤，联网后可重试。不同设备不互相合并；关闭后只停止上传，已有加密副本仍保留。
+在常用设备打开「数据与备份 → 私有核对」。首次需在 GitHub 创建细粒度访问令牌，只选私有仓库 `shift-pay-private-ledger`，Contents 允许 Read and write。令牌仅填在班薪记设置内。每次保存先写本机，再上传加密副本。打开工资总览时会检查给本设备的更新，校验签名、解密并比对要修改的记录后保存。银行到账、已录班次等其他项目按本机记录保留。关闭私有核对会暂停该浏览器的收发。
 
 核对端使用当前授权的 GitHub CLI 与受本机 Windows 用户保护的密钥：
 - `node scripts/read-private-review.mjs --list` 查看已上传设备。
 - `node scripts/read-private-review.mjs --device=设备编号` 核验并读取最新副本的摘要；如需解析全部记录，追加 `--out=新文件路径` 导出明文供本机核对。不要把该文件提交到代码仓库。
+- 向对应设备发送已核对的更新，可传入 `--device=设备编号 --queue=本地更新.json`。消息经过加密和签名，浏览器保存后回传回执，再接收下一笔。常用修改用 `shift-pay-changes-v1`，用 `shifts`、`payslips` 或 `cycles` 提供 `{ before, after }` 记录，新增时 `before` 为 `null`。更新规则用 `rules.before` 和 `rules.after` 提供两个版本。另支持已有的 `shift-pay-review-v1` 补录文件。
 - 公开代码仅包含加密公钥和私有仓库标识；私钥保存在本机用户目录的 ShiftPay 文件夹，不纳入项目或备份。私有仓库只接收密文。

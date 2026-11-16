@@ -29,14 +29,24 @@ export async function readStoredRecord(key:string):Promise<unknown>{
     request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
   });
 }
-export async function writeStoredLedger(state:State,legacyRaw?:string):Promise<void>{
+export async function writeStoredLedger(state:State,legacyRaw?:string,expected?:State):Promise<void>{
   const db=await database();
   return new Promise((resolve,reject)=>{
     const transaction=db.transaction(STORE_NAME,'readwrite'),store=transaction.objectStore(STORE_NAME);
     // Request success is not enough: report saved only after the whole transaction commits.
     transaction.oncomplete=()=>resolve();
-    transaction.onerror=transaction.onabort=()=>reject(transaction.error??new DOMException('保存事务未完成','AbortError'));
-    try{store.put(state,CURRENT_KEY);if(legacyRaw!==undefined)store.put(legacyRaw,LEGACY_BACKUP_KEY);}
-    catch(error){transaction.abort();reject(error);}
+    let writeError:unknown;
+    transaction.onerror=transaction.onabort=()=>reject(writeError??transaction.error??new DOMException('保存事务未完成','AbortError'));
+    const put=()=>{
+      try{store.put(state,CURRENT_KEY);if(legacyRaw!==undefined)store.put(legacyRaw,LEGACY_BACKUP_KEY);}
+      catch(error){writeError=error;transaction.abort();}
+    };
+    if(!expected){put();return;}
+    const current=store.get(CURRENT_KEY);
+    current.onsuccess=()=>{
+      if(JSON.stringify(current.result)===JSON.stringify(expected)){put();return;}
+      writeError=new Error('另一个页面已更新账本，请刷新后再操作。');
+      transaction.abort();
+    };
   });
 }

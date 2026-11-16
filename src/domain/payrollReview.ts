@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { attendanceTotals, dec } from './engine';
 import { period } from './dates';
-import { date, numeric, payslipSchema, type State } from './model';
+import { date, numeric, payslipSchema, shiftSchema, rulesSchema, cycleSchema, type State } from './model';
 import { newShift } from './seed';
 
 const importSchema = z.object({
@@ -62,4 +62,58 @@ export function applyPayrollReview(state: State, input: unknown): State {
     actualNet: existing?.actualNet ?? '', confirmed: existing?.confirmed ?? false, note: existing?.note || payslip.note };
   return { ...state, rules: { ...state.rules, regularFrom }, shifts,
     payslips: [...state.payslips.filter(slip => slip.month !== payslip.month), saved] };
+}
+
+const recordChange = <T extends z.ZodType>(schema:T) => z.object({
+  before:schema.nullable(),after:schema.nullable(),
+});
+const changesSchema=z.object({
+  kind:z.literal('shift-pay-changes-v1'),
+  month:z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+  rules:z.object({before:rulesSchema,after:rulesSchema}).optional(),
+  shifts:z.array(recordChange(shiftSchema)).max(500).default([]),
+  payslips:z.array(recordChange(payslipSchema)).max(24).default([]),
+  cycles:z.array(recordChange(cycleSchema)).max(24).default([]),
+});
+
+function recordEquals(a:unknown,b:unknown):boolean{
+  if(a===b)return true;
+  if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+  const left=a as Record<string,unknown>,right=b as Record<string,unknown>;
+  const keys=Object.keys(left);
+  return keys.length===Object.keys(right).length&&keys.every(key=>Object.hasOwn(right,key)&&recordEquals(left[key],right[key]));
+}
+
+function mergeRecords<T>(current:T[],changes:{before:T|null;after:T|null}[],id:(record:T)=>string,label:string){
+  const records=new Map(current.map(record=>[id(record),record]));
+  const edited=new Set<string>();
+  for(const {before,after} of changes){
+    const record=before??after;
+    if(!record)throw new Error('账本更新缺少记录。');
+    const key=id(record);
+    if(edited.has(key)||after&&id(after)!==key)throw new Error(`${label}更新包含重复或变更的编号。`);
+    edited.add(key);
+    if(!recordEquals(records.get(key)??null,before))throw new Error(`${label}已有新的本机修改，请重新核对后再同步。`);
+    if(after)records.set(key,after);
+    else records.delete(key);
+  }
+  return [...records.values()];
+}
+
+export function applyInboxUpdate(state:State,input:unknown){
+  const correction=importSchema.safeParse(input);
+  if(correction.success)return {state:applyPayrollReview(state,correction.data),month:correction.data.payslip.month};
+  const parsed=changesSchema.safeParse(input);
+  if(!parsed.success)throw new Error('无法识别此次账本更新。');
+  const update=parsed.data;
+  if(update.rules&&!recordEquals(state.rules,update.rules.before))throw new Error('工资规则已有新的本机修改，请重新核对后再同步。');
+  return {
+    month:update.month,
+    state:{...state,
+      rules:update.rules?.after??state.rules,
+      shifts:mergeRecords(state.shifts,update.shifts,record=>record.id,'考勤'),
+      payslips:mergeRecords(state.payslips,update.payslips,record=>record.month,'工资条'),
+      cycles:Object.fromEntries(mergeRecords(Object.values(state.cycles),update.cycles,record=>record.month,'工资周期').map(record=>[record.month,record])),
+    },
+  };
 }

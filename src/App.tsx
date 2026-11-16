@@ -4,8 +4,8 @@ import type { State } from './domain/model';
 import { stateSchema, uid } from './domain/model';
 import { splitShift, validateAttendance } from './domain/engine';
 import { createPayrollLedger } from './domain/payroll';
-import { applyPayrollReview } from './domain/payrollReview';
-import { readReviewAdjustment } from './domain/reviewSync';
+import { applyInboxUpdate, applyPayrollReview } from './domain/payrollReview';
+import { inboxAuditAction, inboxReceipt, readReviewAdjustment, readReviewConnection, readReviewInbox } from './domain/reviewSync';
 import { monthOf, period } from './domain/dates';
 import { persist, parseBackup, validateLedger, upgradeSavedState, download, ledgerCsv, attendanceCsv, payslipCsv, storageErrorMessage, exportLegacyBackup } from './domain/storage';
 import type { LoadResult } from './domain/storage';
@@ -50,7 +50,7 @@ export default function App({initial}:{initial:LoadResult}){
       const before=stateRef.current,changed=update(structuredClone(before));stateSchema.parse(changed);validateAttendance(changed.shifts);
       for(const s of changed.shifts)splitShift(s,changed.rules);
       const delta=diffs(before,changed);changed.audit=[...changed.audit,{id:uid(),at:new Date().toISOString(),action,note,...delta}];
-      try{await persist(changed);}catch(e){setToast(storageErrorMessage(e));return false;}
+      try{await persist(changed,before);}catch(e){setToast(storageErrorMessage(e));return false;}
       stateRef.current=changed;setState(changed);setToast(action+'成功');return true;
     }catch(e){setToast((e as Error).message);return false;}
   });
@@ -102,6 +102,59 @@ export default function App({initial}:{initial:LoadResult}){
       .catch((error:unknown)=>setToast(error instanceof Error&&error.name==='AbortError'?'读取超时，联网后可重新打开核对链接。':error instanceof Error?error.message:'暂时无法打开核对链接。'))
       .finally(()=>window.clearTimeout(timeout));
   },[applyReview]);
+  const [inboxStatus,setInboxStatus]=useState('');
+  const acceptInbox=useRef<((command:{id:string;input:unknown})=>Promise<void>)|null>(null);
+  acceptInbox.current=async({id,input})=>{
+    if(inboxReceipt(stateRef.current,id))return;
+    let changeMonth:string|undefined;
+    const saved=await commit(inboxAuditAction,id,before=>{
+      if(inboxReceipt(before,id))throw new Error('这笔更新已经保存。');
+      const result=applyInboxUpdate(before,input);
+      changeMonth=result.month;
+      return validateLedger(result.state);
+    });
+    setInboxStatus(saved?'已接收并保存账本更新':'有一笔更新待核对，查看保存提示。');
+    if(saved&&changeMonth){
+      setSnapshotId('');
+      setMonth(changeMonth);
+      setOverviewView('period');
+    }
+  };
+  const inboxAvailable=review.connected&&!storageError&&!snapshotId&&page==='overview'&&!dataOpen&&!help;
+  useEffect(()=>{
+    const connection=readReviewConnection();
+    if(!inboxAvailable||!connection)return;
+    const controller=new AbortController();
+    let running=false;
+    const check=async()=>{
+      if(running||controller.signal.aborted||document.hidden||document.querySelector('[role="dialog"]'))return;
+      running=true;
+      const timeout=new AbortController();
+      const stop=()=>timeout.abort();
+      controller.signal.addEventListener('abort',stop,{once:true});
+      const timer=window.setTimeout(stop,15000);
+      try{
+        const update=await readReviewInbox(connection,stateRef.current,timeout.signal);
+        if(update&&!controller.signal.aborted&&!document.querySelector('[role="dialog"]'))await acceptInbox.current?.(update);
+      }catch(error){
+        if(!timeout.signal.aborted)setInboxStatus(error instanceof TypeError?'联网后会继续接收更新。':(error as Error).message);
+      }finally{
+        window.clearTimeout(timer);
+        controller.signal.removeEventListener('abort',stop);
+        running=false;
+      }
+    };
+    void check();
+    const interval=window.setInterval(()=>void check(),30000);
+    window.addEventListener('online',check);
+    document.addEventListener('visibilitychange',check);
+    return ()=>{
+      controller.abort();
+      window.clearInterval(interval);
+      window.removeEventListener('online',check);
+      document.removeEventListener('visibilitychange',check);
+    };
+  },[inboxAvailable,review.device]);
   const goto=(id:Page)=>{setPage(id);setSnapshotId('');if(id==='overview')setOverviewView('period');setMobileMenu(false);window.scrollTo({top:0,behavior:'smooth'});};
   const bounds=period(cycle.month,activeState.rules.cycleEnd);
   return <div className="app-shell"><aside className={'sidebar '+(mobileMenu?'open':'')}><a className="brand" href="#" onClick={e=>{e.preventDefault();goto('overview');}}><span className="brand-symbol"><BookOpen size={23}/></span><span>班薪记<small>每一班，都有数</small></span></a><div className="nav-label">我的工资账本</div><nav aria-label="主导航">{navigation.map(n=><button key={n.id} className={'nav-item '+(page===n.id?'active':'')} onClick={()=>goto(n.id)}><n.icon size={19}/><span>{n.title}</span>{page===n.id&&<span className="active-indicator"/>}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item" onClick={()=>{setDataOpen(true);setMobileMenu(false);}}><Database size={18}/>数据与备份</button><div className="privacy-card"><ShieldCheck size={18}/><strong>本机账本</strong><p>{review.connected?'私有核对已开启；完整账本仍在此设备保存。':'数据默认在本机保存。可导出备份或开启私有核对。'}</p><Badge tone="green">{review.connected?'本机保存 · 私有核对':'浏览器本地存储'}</Badge></div><div className="sidebar-user"><div className="avatar">我</div><div><strong>我的个人账本</strong><span>{(state.rules.regularFrom?asOf>=state.rules.regularFrom:state.rules.employee==='regular')?'正式员工':'试用期员工'} · {state.rules.hireDate} 入职</span></div></div></div></aside>{mobileMenu&&<div className="sidebar-backdrop" onClick={()=>setMobileMenu(false)}/>}
@@ -117,7 +170,7 @@ export default function App({initial}:{initial:LoadResult}){
     <nav className="mobile-bottom-nav" aria-label="手机导航">{navigation.map(n=><button className={page===n.id?'active':''} key={n.id} onClick={()=>goto(n.id)}><n.icon size={19}/><span>{n.title}</span></button>)}</nav>
     {toast&&<div className="toast" role="status"><CheckCircle2 size={18}/><span>{toast}</span><button className="icon-button" onClick={()=>setToast('')} aria-label="关闭提示"><X size={15}/></button></div>}
     {dataOpen&&<Modal title="数据与备份" onClose={()=>setDataOpen(false)} wide><div className="modal-tabs">{[['backup','导入导出'],['snapshots','历史工资快照'],['audit','修改记录'],['review','私有核对']].map(([id,title])=><button className={dataTab===id?'active':''} key={id} onClick={()=>setDataTab(id as typeof dataTab)}>{title}</button>)}</div><div className="modal-body">{dataTab==='backup'&&<><Notice>数据保存于当前浏览器和当前网址。更换设备或网址、清理浏览器数据前，请导出 JSON。JSON 包含考勤、规则、工资条、快照与修改记录。</Notice><div className="backup-grid"><button className="backup-card" onClick={()=>download('班薪记-完整备份-'+today()+'.json',JSON.stringify(state,null,2))}><Download size={24}/><strong>导出 JSON 完整备份</strong><span>保留所有周期与规则快照</span></button><label className="backup-card"><Upload size={24}/><strong>从 JSON 恢复</strong><span>替换当前账本，恢复前自动导出备份</span><input aria-label="选择 JSON 备份文件" type="file" accept="application/json,.json" onChange={e=>{const file=e.target.files?.[0];if(file)void restore(file);e.target.value='';}}/></label></div><div className="review-import"><label className="backup-card"><FileCheck2 size={20}/><strong>导入工资核对补录</strong><span>合并已核对的工资条、调休和转正日期</span><input aria-label="选择工资核对补录文件" type="file" accept="application/json,.json" onChange={e=>{const file=e.target.files?.[0];if(file)void importReview(file);e.target.value='';}}/></label></div><button className="button secondary small-button" onClick={()=>void exportLegacyBackup().catch(e=>setToast((e as Error).message))}>导出升级前原始备份</button><h3>{month} · 按工资周期导出</h3><div className="button-row"><button className="button secondary" onClick={exportMonth}>工资明细 CSV</button><button className="button secondary" onClick={()=>download(month+'-考勤.csv',attendanceCsv(state.shifts,month,state.rules.cycleEnd),'text/csv;charset=utf-8')}>考勤 CSV</button><button className="button secondary" disabled={!state.payslips.some(p=>p.month===month)} onClick={()=>{const p=state.payslips.find(p=>p.month===month);if(p)download(month+'-工资条.csv',payslipCsv(p),'text/csv;charset=utf-8');}}>工资条 CSV</button></div><hr/><p className="muted small">清除某周期的录入记录时，已保存快照与审计记录继续保留。</p><button className="button danger ghost" onClick={()=>setDeleting(true)}><Trash2 size={16}/>删除本周期考勤与工资录入</button></>}
-    {dataTab==='review'&&<PrivateReview review={review} available={!storageError}/>}
+    {dataTab==='review'&&<PrivateReview review={review} available={!storageError} inboxStatus={inboxStatus} onCheckInbox={()=>{setDataOpen(false);setSnapshotId('');setPage('overview');}}/>}
     {dataTab==='snapshots'&&<><p className="muted">快照保存当时的规则版本、考勤、公式和结果。修改当前规则不会更改这些记录。</p>{!state.snapshots.length&&<div className="empty-state"><History size={28}/><p>还没有工资快照。可在工资总览保存本周期结果。</p></div>}{state.snapshots.slice().reverse().map(s=><div className="snapshot-row" key={s.id}><div><strong>{s.month} 工资周期</strong><small>{new Date(s.savedAt).toLocaleString('zh-CN')} · 规则 v{s.rules.version}</small></div><strong>{currency(s.result.net)}</strong><button className="button secondary small-button" onClick={()=>{setMonth(s.month);setPage('overview');setOverviewView('period');setSnapshotId(s.id);setDataOpen(false);}}>查看</button><button className="icon-button" aria-label="删除快照" onClick={()=>commit('删除工资快照',s.month,old=>({...old,snapshots:old.snapshots.filter(x=>x.id!==s.id)}))}><Trash2 size={15}/></button></div>)}</>}
     {dataTab==='audit'&&<><Notice>每次保存只记录本次变动的前后值和备注，避免重复保存整份账本。修改记录随完整 JSON 备份导出；旧版升级前的原始数据另有备份。</Notice>{!state.audit.length&&<p className="muted">暂无人工修改记录。</p>}{state.audit.slice().reverse().map(a=><details className="audit-entry" key={a.id}><summary><strong>{a.action}</strong><span>{new Date(a.at).toLocaleString('zh-CN')}</span></summary><p>{a.note}</p><strong className="small">修改前</strong><pre>{a.before}</pre><strong className="small">修改后</strong><pre>{a.after}</pre></details>)}</>}
     </div></Modal>}

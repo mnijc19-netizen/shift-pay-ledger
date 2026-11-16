@@ -42,8 +42,8 @@ export async function verifyReviewRepository(token:string, signal:AbortSignal) {
   if(typeof repo.default_branch!=='string'||!repo.default_branch)throw new Error('无法确认私有仓库分支，已停止上传。');
   return repo.default_branch as string;
 }
-export async function encryptReviewCopy(state:State, device:string, publicKey:JsonWebKey=config.publicKey) {
-  const payload=encoder.encode(JSON.stringify(state));
+export async function encryptReviewCopy(state:State, device:string, publicKey:JsonWebKey=config.publicKey,inboxSecret?:string) {
+  const payload=encoder.encode(JSON.stringify(inboxSecret?{...state,reviewInboxSecret:inboxSecret}:state));
   if(payload.byteLength>20*1024*1024)throw new Error('账本超过核对副本的大小限制，请先导出本地备份。');
   const compression=typeof CompressionStream==='function'?'gzip':'none';
   const plain=compression==='gzip'?await new Response(new Blob([payload]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer():payload;
@@ -59,7 +59,7 @@ export async function encryptReviewCopy(state:State, device:string, publicKey:Js
 }
 export async function publishReviewCopy(connection:ReviewConnection, state:State, signal:AbortSignal) {
   const branch=await verifyReviewRepository(connection.token,signal);
-  const copy=await encryptReviewCopy(state,connection.device);
+  const copy=await encryptReviewCopy(state,connection.device,config.publicKey,inboxSecret(connection.device));
   const path='/contents/devices/'+connection.device+'.json';
   const content=base64(encoder.encode(JSON.stringify(copy)));
   for(let attempt=0;attempt<2;attempt++){
@@ -76,6 +76,62 @@ export async function publishReviewCopy(connection:ReviewConnection, state:State
 
 const adjustmentLink = /^#review=([0-9a-f-]{36})\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/;
 const decodeBase64 = (value:string) => Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/')),letter=>letter.charCodeAt(0));
+
+const randomId=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const encodedKey=/^[A-Za-z0-9+/]{43}=$/;
+export const inboxAuditAction='接收私有账本更新';
+export const inboxReceipt=(state:State,id:string)=>state.audit.some(entry=>entry.action===inboxAuditAction&&entry.note===id);
+
+function inboxSecret(device:string){
+  const storageKey='shift-pay:review-inbox-key:'+device;
+  const saved=localStorage.getItem(storageKey);
+  if(saved&&encodedKey.test(saved))return saved;
+  const created=base64(crypto.getRandomValues(new Uint8Array(32)));
+  localStorage.setItem(storageKey,created);
+  return created;
+}
+
+async function bootstrapKey(state:State,device:string,fingerprints:string[]){
+  // An existing encrypted copy and its originating browser already share these random record IDs.
+  const ids=new Set([...state.shifts,...state.audit,...state.snapshots].map(record=>record.id).filter(id=>randomId.test(id)));
+  const found=new Map<string,string>();
+  for(const id of ids){
+    const fingerprint=base64(await crypto.subtle.digest('SHA-256',encoder.encode('shift-pay-id-v1/'+id)));
+    if(fingerprints.includes(fingerprint))found.set(fingerprint,id);
+    if(found.size===fingerprints.length)break;
+  }
+  if(found.size!==fingerprints.length)throw new Error('这笔更新与本机账本不匹配，请重新上传本机账本。');
+  return new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(
+    'shift-pay-inbox-bootstrap-v1/'+device+'/'+fingerprints.map(value=>found.get(value)).join('/'))));
+}
+
+export async function readReviewInbox(connection:ReviewConnection,state:State,signal:AbortSignal){
+  const branch=await verifyReviewRepository(connection.token,signal);
+  const response=await request(connection.token,'/contents/inbox/'+connection.device+'.json?ref='+encodeURIComponent(branch),signal);
+  if(response.status===404)return null;
+  if(!response.ok)throw new Error('暂时无法接收账本更新。');
+  const file=await response.json();
+  if(file.encoding!=='base64'||typeof file.content!=='string'||file.content.length>1400000)throw new Error('账本更新文件无效。');
+  const envelope=JSON.parse(new TextDecoder().decode(decodeBase64(file.content)));
+  const {version,device,id,bootstrap,iv,data,signature}=envelope;
+  if(version!==1||device!==connection.device||!randomId.test(id)||typeof iv!=='string'||typeof data!=='string'||
+      typeof signature!=='string'||bootstrap!==null&&(!Array.isArray(bootstrap)||bootstrap.length!==2||
+      new Set(bootstrap).size!==2||!bootstrap.every(value=>typeof value==='string'&&encodedKey.test(value))))throw new Error('账本更新文件无效。');
+  if(inboxReceipt(state,id))return null;
+  const metadata={version,device,id,bootstrap,iv};
+  const verificationKey=await crypto.subtle.importKey('jwk',{
+    kty:config.publicKey.kty,n:config.publicKey.n,e:config.publicKey.e,
+  },{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
+  const signed=encoder.encode(JSON.stringify({...metadata,data}));
+  if(!await crypto.subtle.verify('RSASSA-PKCS1-v1_5',verificationKey,decodeBase64(signature),signed)){
+    throw new Error('未能验证账本更新的签名。');
+  }
+  const rawKey=bootstrap?await bootstrapKey(state,device,bootstrap):decodeBase64(inboxSecret(device));
+  const key=await crypto.subtle.importKey('raw',rawKey,'AES-GCM',false,['decrypt']);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:decodeBase64(iv),
+    additionalData:encoder.encode(JSON.stringify(metadata))},key,decodeBase64(data));
+  return {id,input:JSON.parse(new TextDecoder().decode(plain)) as unknown};
+}
 
 export async function readReviewAdjustment(hash:string, signal:AbortSignal):Promise<unknown> {
   const match=adjustmentLink.exec(hash);
