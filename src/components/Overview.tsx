@@ -3,7 +3,7 @@ import { ArrowUpRight, ArrowRight, CalendarCheck2, Settings2, Save, ChevronDown,
 import type { State, Cycle, PayResult, PayItem } from '../domain/model';
 import { sourceLabels, extraSchema, uid } from '../domain/model';
 import { period, performanceStages } from '../domain/dates';
-import { sum, money, dec, attendanceTotals } from '../domain/engine';
+import { sum, money, dec, attendanceTotals, nonWork } from '../domain/engine';
 import type { CumulativePayroll } from '../domain/payroll';
 import { LifetimeSummary } from './LifetimeSummary';
 import type { Commit } from './Attendance';
@@ -25,6 +25,9 @@ export function Overview({state,cycle,result,lifetime,view,onViewChange,onSelect
   const [addition,setAddition]=useState<{kind:'performance'|'extra';name:string;amount:string;note:string;confirmed:boolean}|null>(null),[additionError,setAdditionError]=useState('');
   const accrued=cycle.mode==='attendance',bounds=period(cycle.month,state.rules.cycleEnd),slip=state.payslips.find(p=>p.month===cycle.month);
   const cycleAttendance=useMemo(()=>attendanceTotals(state.shifts,state.rules,bounds),[state.shifts,state.rules,bounds.start,bounds.end]);
+  const lastRecordedWork=useMemo(()=>state.shifts.reduce((latest,shift)=>
+    !shift.draft&&!nonWork(shift)&&shift.date>=bounds.start&&shift.date<=bounds.end&&shift.date>latest?shift.date:latest,''),
+  [state.shifts,bounds.start,bounds.end]);
   const closed=bounds.end<new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date());
   const settleMonth=()=>commit('按整月结算本期',cycle.month+'；使用合同月基本工资，排班休息不自动扣薪；无薪缺勤和实际工资条另行核对。',s=>({...s,cycles:{...s.cycles,[cycle.month]:{...(s.cycles[cycle.month]??cycle),mode:'full'}}}));
   const visible=(i:PayItem)=>filter==='all'||filter==='confirmed'&&i.confirmed||filter==='expected'&&!i.confirmed;
@@ -71,6 +74,8 @@ export function Overview({state,cycle,result,lifetime,view,onViewChange,onSelect
       {performanceAmount!==undefined?<strong className="performance-amount">{currency(performanceAmount)}</strong>:
         <p className="muted small">{stages.length===2?'转正生效日按 100% 显示，整期绩效待确认分段算法。':'正式绩效基数待确认。'}</p>}
     </section>}
+    {issuedNet===undefined&&<PayCalculationChain result={result} accrued={accrued} asOf={lastRecordedWork}
+      onDetails={()=>{onViewChange('details');window.scrollTo(0,0);}}/>}
     {issuedNet===undefined&&accrued&&closed&&cycle.baseActual===''&&!readonly&&<section className="card settlement-card" aria-label="完整周期结算提示"><h2>本周期已结束，请核对底薪结算</h2><p className="muted small">当前底薪 {currency(result.items.find(i=>i.id==='base')?.amount??'0')} 是已录正常工时及带薪假的累计，不等于完整周期的合同月底薪。确认本期完整在职、休息属于排班且没有另行无薪扣款时，可按月底薪 {currency(state.rules.base)} 结算，加班费另加。需要扣薪的个人请假，请在本周期参数录入实际扣款。</p><button className="button secondary small-button" onClick={settleMonth}>按整月结算本期</button></section>}
     </div>}
     {view==='lifetime'&&<LifetimeSummary payroll={lifetime} hireDate={state.rules.hireDate} onSelect={onSelectCycle}/>}

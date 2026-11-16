@@ -120,7 +120,12 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
   const factor=c.mode==='attendance'?D.min(1,normalHours.div(r.standardHours).div(denominator)):c.mode==='partial'?dec(c.paidDays).div(denominator):dec(1);
   const base=c.baseActual!==''?dec(c.baseActual):c.mode==='manual'?dec(0):dec(r.base).mul(factor);
   const baseFormula=c.baseActual!==''?'本期实际基本工资':c.mode==='attendance'?`${r.base} ÷ ${denominator} ÷ ${r.standardHours} × ${normalHours.toString()} 小时（上限 ${r.base} 元）`:c.mode==='partial'?`${r.base} ÷ ${denominator} × ${c.paidDays}`:c.mode==='manual'?'待录入实际基本工资':`${r.base} × 1`;
-  add(basic('base','基本工资',c.baseConfirmed&&(c.baseActual!==''||verified),baseFormula,c.mode==='attendance'?`已录正常工时及带薪假合计 ${normalHours.toString()} 小时；每天最多 ${r.standardHours} 小时；已录法定带薪休假保留工资，草稿、普通休息及未录日期不预计；加班另算。`:c.mode==='partial'?`应计薪 ${c.expectedDays} 天；实际 ${c.paidDays} 天；折算分母 ${denominator}`:'整月基本工资结算；排班休息不自动按无薪缺勤扣款，已录实际金额及扣款优先；正常工资不重复添加',c.baseActual!==''?'payslip':'auto'),base);
+  const baseInputs=c.baseActual!==''?'使用本期录入的实际基本工资。加班另算。':c.mode==='attendance'?
+    `已录正常工时及带薪假合计 ${normalHours.toString()} 小时。每天最多 ${r.standardHours} 小时，加班另算。`:
+    c.mode==='partial'?`应计薪 ${c.expectedDays} 天，实际 ${c.paidDays} 天，折算分母 ${denominator}。`:
+    c.mode==='manual'?'填写本期实际基本工资后计入。':'按整月底薪结算，正常工时工资计入一次。';
+  add({...basic('base','基本工资',c.baseConfirmed&&(c.baseActual!==''||verified),baseFormula,baseInputs,c.baseActual!==''?'payslip':'auto'),
+    hours:c.mode==='attendance'&&c.baseActual===''?normalHours.toString():''},base);
   if(c.mode==='manual'&&c.baseActual==='')warnings.push('基本工资采用实际录入模式，但本期金额未填写。');
   if(c.mode==='full')warnings.push('基本工资使用整月结算口径估算；排班休息不自动扣薪，个人无薪请假或实际病假扣薪需另行录入。');
   if(r.hireDate>bounds.start&&c.mode==='full')warnings.push('入职日处于本周期内，请确认基本工资是否应按部分周期折算。');

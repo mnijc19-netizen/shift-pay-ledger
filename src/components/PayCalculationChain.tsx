@@ -1,35 +1,58 @@
-import { ArrowRight, ArrowDown } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type { PayItem, PayResult } from '../domain/model';
 import { money, sum } from '../domain/engine';
 import { currency } from './ui';
 
 const insuranceNames=new Set(['养老保险','医疗保险','失业保险','住房公积金']);
-export function PayCalculationChain({result,accrued=false}:{result:PayResult;accrued?:boolean}){
-  const cash=result.items.filter(i=>!i.deduction&&i.method==='cash'),deductions=result.items.filter(i=>i.deduction);
-  const total=(items:PayItem[])=>money(sum(items.map(i=>i.amount)));
-  const base=cash.filter(i=>i.id==='base'),ot=cash.filter(i=>i.id.startsWith('ot-')),night=cash.filter(i=>i.id.startsWith('night-'));
-  const other=cash.filter(i=>!base.includes(i)&&!ot.includes(i)&&!night.includes(i));
-  const insurance=deductions.filter(i=>insuranceNames.has(i.name)),tax=deductions.filter(i=>i.name==='个人所得税'),otherDeductions=deductions.filter(i=>!insurance.includes(i)&&!tax.includes(i));
-  const row=(label:string,value:string)=><div className="pay-chain-row" key={label}><span>{label}</span><strong>{value}</strong></div>;
-  const arrow=<span className="pay-chain-arrow" aria-hidden="true"><ArrowRight size={22}/><ArrowDown size={22}/></span>;
+const total=(items:PayItem[])=>money(sum(items.map(i=>i.amount)));
+
+function WageLine({label,value,calculation}:{label:string;value:string;calculation?:string}){
+  return <div className="pay-chain-row">
+    <div><span>{label}</span>{calculation&&<small>{calculation}</small>}</div>
+    <strong>{value}</strong>
+  </div>;
+}
+
+export function PayCalculationChain({result,accrued=false,asOf,onDetails}:{
+  result:PayResult;accrued?:boolean;asOf?:string;onDetails?:()=>void;
+}){
+  const cash=result.items.filter(item=>!item.deduction&&item.method==='cash');
+  const deductions=result.items.filter(item=>item.deduction);
+  const base=cash.find(item=>item.id==='base');
+  const overtime=cash.filter(item=>item.id.startsWith('ot-'));
+  const night=cash.filter(item=>item.id.startsWith('night-'));
+  const other=cash.filter(item=>item.id!=='base'&&!overtime.includes(item)&&!night.includes(item));
+  const hasPerformance=other.some(item=>item.id==='performance');
+  const hasTax=deductions.some(item=>item.name==='个人所得税');
+  const nightCount=new Set(night.flatMap(item=>item.shiftIds)).size;
   return <section className="card pay-chain" aria-label="工资计算链">
-    <div className="section-heading"><div><h2>工资怎么算到手</h2><p className="muted small">先加工资收入，再从应发里扣个人费用。</p></div></div>
+    <div className="section-heading"><div><h2>本期工资怎么算</h2><p className="muted small">{asOf?'已录工作至 '+asOf.slice(5).replace('-',' 月 ')+' 日':'工资收入合计，再减个人扣款'}</p></div>
+      {onDetails&&<button type="button" className="text-button" onClick={onDetails}>逐项明细 <ChevronRight size={15}/></button>}
+    </div>
     <div className="pay-chain-flow">
-      <div className="pay-chain-step"><h3><span>1</span>{accrued?'先累计已录工资':'先算应发工资'}</h3>{accrued&&<p className="pay-chain-note">{base[0]?.formula}。含已录正常工时及带薪假，未录入日期不计工资。</p>}
-        {row('基本工资',currency(total(base)))}{row('＋ 加班费',currency(total(ot)))}{row('＋ 夜班餐补',currency(total(night)))}{row('＋ 绩效、其他津贴奖金',currency(total(other)))}
-        <div className="pay-chain-total"><span>＝ 应发工资</span><strong data-testid="chain-gross">{currency(result.gross)}</strong></div>
-      </div>{arrow}
-      <div className="pay-chain-step"><h3><span>2</span>从应发里扣个人费用</h3>
-        {row('个人五险一金',currency(total(insurance)))}{row('＋ 个人所得税',tax.length?currency(total(tax)):'待录入，暂未计')}{row('＋ 其他扣款',currency(total(otherDeductions)))}
-        <p className="pay-chain-note">{insurance.some(i=>i.source==='pending')?'五险一金含最低参考估算；录入工资条实际扣款后，逐项替换。':'五险一金按本期已录入的个人扣款计算。'}单位承担部分不扣个人工资。</p>
-        <div className="pay-chain-total"><span>＝ 扣款合计</span><strong data-testid="chain-deductions">{currency(result.deductions)}</strong></div>
-      </div>{arrow}
-      <div className="pay-chain-step pay-chain-result"><h3><span>3</span>{accrued?'扣款后参考到账':'预计实发到账'}</h3>
-        <p className="pay-chain-equation">应发 {currency(result.gross)}<br/>− 个人扣款 {currency(result.deductions)}</p>
-        <strong className="pay-chain-net" data-testid="chain-net">＝ {currency(result.net)}</strong>
-        <p className="pay-chain-note">{tax.length?'个税使用本期录入金额。':'个税尚未录入，实际有个税时还要扣除。'}未填写的扣款不代表实际为零。{accrued&&'五险一金按月参考；累计收入不足时出现负数，不代表欠款。'}</p>
+      <div className="pay-chain-step">
+        <h3>工资收入</h3>
+        {base&&<WageLine label="基本工资" value={currency(base.amount)} calculation={base.formula}/>}
+        {overtime.map(item=><WageLine key={item.id} label={item.name} value={currency(item.amount)}
+          calculation={item.formula.replace(/^(\d+(?:\.\d+)?) × /,'$1 小时 × ')}/>)}
+        {night.length>0&&<WageLine label="晚间餐补" value={currency(total(night))} calculation={nightCount?nightCount+' 班计入':''}/>}
+        {other.map(item=><WageLine key={item.id} label={item.name} value={currency(item.amount)}/>)}
+        {!hasPerformance&&<WageLine label="绩效奖金" value="待核对 · 暂未计入"/>}
+        <div className="pay-chain-total"><span>应发工资</span><strong data-testid="chain-gross">{currency(result.gross)}</strong></div>
+      </div>
+      <div className="pay-chain-step">
+        <h3>个人扣款</h3>
+        {deductions.map(item=><WageLine key={item.id} label={item.name} value={currency(item.amount)}
+          calculation={insuranceNames.has(item.name)?(item.formula==='工资条实际扣款'?'已录实际扣款':item.formula+' · 参考'):undefined}/>)}
+        {!hasTax&&<WageLine label="个人所得税" value="待录入，暂未计"/>}
+        <p className="pay-chain-note">五险一金参考按月计算。单位承担部分不扣个人工资。</p>
+        <div className="pay-chain-total"><span>已计扣款</span><strong data-testid="chain-deductions">{currency(result.deductions)}</strong></div>
       </div>
     </div>
-    <p className="pay-chain-footnote">饭卡与其他非现金福利单列；夜班餐补计入现金工资。{accrued?'基本工资累计已录正常工时及带薪假，加班另算；已结束周期需核对整月结算口径。':'基本工资按本周期计一次，日历中的每日分摊不再重复相加。'}</p>
+    <div className="pay-chain-result">
+      <div><strong>{accrued?'扣款后参考到账':'预计实发到账'}</strong><p className="muted small">{currency(result.gross)} − {currency(result.deductions)}</p></div>
+      <strong className="pay-chain-net" data-testid="chain-net">＝ {currency(result.net)}</strong>
+    </div>
+    <p className="pay-chain-footnote">饭卡与其他非现金福利单列。{Number(result.noncash)>0&&'本期非现金福利 '+currency(result.noncash)+'。'}</p>
   </section>;
 }
