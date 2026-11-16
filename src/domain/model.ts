@@ -21,7 +21,7 @@ export const rulesSchema = z.object({
   mealMinutes:numeric.refine(v=>Number(v)<=720), deductShort:z.boolean(), shortMinutes:numeric.refine(v=>Number(v)<=120),
   post:numeric, postEnabled:z.boolean(), postProrate:z.boolean(), meal:numeric, mealProrate:z.boolean(), mealMethod:z.enum(['cash','card','other','unknown']),
   dayMeal:numeric, night:numeric, heat:numeric, heatProrate:z.boolean(), performance:z.union([numeric,z.literal('')]), trialRatio:numeric,
-  performanceMethod:z.enum(['full','prorate','manual']), midTrial:numeric, midRegular:numeric, nationalTrial:numeric, nationalRegular:numeric,
+  performanceMethod:z.enum(['full','prorate','manual']), regularFrom:date.optional(), midTrial:numeric, midRegular:numeric, nationalTrial:numeric, nationalRegular:numeric,
   calendar:z.array(calendarEntrySchema)
 });
 export const shiftSchema = z.object({
@@ -45,7 +45,7 @@ export const cycleSchema = z.object({
   midGift:z.boolean(), midConfirmed:z.boolean(), nationalGift:z.boolean(), nationalConfirmed:z.boolean(),
   deductions:z.array(deductionSchema), extras:z.array(extraSchema)
 });
-export const payslipSchema = z.object({id:z.string(), month:z.string(), rows:z.array(z.object({id:z.string(), key:z.string(), name:z.string(), amount:numeric, confirmed:z.boolean(), note:z.string()})), actualNet:z.union([numeric,z.literal('')]), confirmed:z.boolean(), note:z.string()});
+export const payslipSchema = z.object({id:z.string(), month:z.string(), rows:z.array(z.object({id:z.string(), key:z.string(), name:z.string(), amount:numeric, confirmed:z.boolean(), note:z.string()})), issuedNet:numeric.optional(), actualNet:z.union([numeric,z.literal('')]), confirmed:z.boolean(), note:z.string()});
 export const itemSchema = z.object({id:z.string(), name:z.string(), raw:z.string(), amount:z.string(), confirmed:z.boolean(), method:z.enum(['cash','card','other','unknown']), source:z.enum(sourceTypes), formula:z.string(), inputs:z.string(), hours:z.string(), rate:z.string(), shiftIds:z.array(z.string()), deduction:z.boolean()});
 export const resultSchema = z.object({items:z.array(itemSchema), gross:z.string(), confirmedCash:z.string(), expectedCash:z.string(), noncash:z.string(), unknownBenefit:z.string(), deductions:z.string(), net:z.string(), warnings:z.array(z.string()), hours:z.record(z.string(),z.string()), stats:z.object({shifts:z.number(),day:z.number(),night:z.number(),rest:z.number()})});
 export const snapshotSchema = z.object({id:z.string(), month:z.string(), savedAt:z.string(), rules:rulesSchema, cycle:cycleSchema, shifts:z.array(shiftSchema), result:resultSchema, payslip:payslipSchema.optional()});

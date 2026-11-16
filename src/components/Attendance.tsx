@@ -118,7 +118,7 @@ export function Attendance({state,month,commit}:{state:State;month:string;commit
                 return <div className={'day-record '+s.type+(s.draft?' draft':'')} key={s.id}>
                   {s.type==='night'?<Moon size={12}/>:!nonWork(s)?<Sun size={12}/>:null}
                   <span>{s.draft?'草稿':s.type==='short'?'短班':s.type==='holiday'?'节假日班':shiftLabels[s.type]}</span>
-                  {!nonWork(s)&&!s.draft&&<small>{prettyHours(h)} 小时</small>}
+                  {!s.draft&&(!nonWork(s)||s.type==='paidLeave')&&<small>{prettyHours(s.type==='paidLeave'?s.paidHours||r.standardHours:h)} 小时</small>}
                 </div>;
               })}
               {earning&&<div className={'daily-earnings '+(earning.pending?'pending':'')} title={'基本工资按日展示 '+currency(earning.base)+' + 加班 '+currency(earning.overtime)+' + 本班津贴 '+currency(earning.allowances)+(earning.pending?'；加班类型待确认':'')}>

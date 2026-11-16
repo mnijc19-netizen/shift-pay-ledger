@@ -20,7 +20,7 @@ export function LifetimeSummary({payroll,hireDate,onSelect}:{payroll:CumulativeP
           <button className="text-button lifetime-period" onClick={()=>onSelect(cycle.month)} aria-label={`查看 ${cycle.month} 工资明细`}><span><strong>{cycle.month}</strong><small>{bounds.start.slice(5)} — {bounds.end.slice(5)}</small></span><ArrowUpRight size={16}/></button>
           <div className="lifetime-row-amount"><span>应发估算</span><strong data-testid="lifetime-row-gross">{hasEstimate?currency(result.gross):'—'}</strong></div>
           <div className="lifetime-row-amount"><span>扣后参考</span><strong data-testid="lifetime-row-net">{hasEstimate?currency(result.net):'—'}</strong></div>
-          <div className="lifetime-row-amount"><span>实际到账</span><strong>{payslip&&payslip.actualNet!==''?currency(payslip.actualNet):'待录入'}</strong>{payslip&&payslip.actualNet!==''&&<small>{payslip.confirmed?'已确认':'待确认'}</small>}</div>
+          <div className="lifetime-row-amount"><span>{payslip?.issuedNet!==undefined?'工资条实发':'实际到账'}</span><strong>{payslip?.issuedNet!==undefined?currency(payslip.issuedNet):payslip?.actualNet?currency(payslip.actualNet):'待录入'}</strong>{payslip?.actualNet&&<small>{payslip.confirmed?'到账已确认':'到账待确认'}</small>}</div>
         </article>)}
       </div>}
       <p className="muted small lifetime-note">按入职所在周期至当前周期的已录记录汇总。工资快照仅供回看；工时按账本实际出勤累计，休息、假期和草稿不计。</p>

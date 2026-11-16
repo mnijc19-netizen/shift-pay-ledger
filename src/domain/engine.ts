@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import type { Rules, Shift, Cycle, PayItem, PayResult, OT, Payslip } from './model';
 import { otLabels } from './model';
-import { civilMs, nextDate, period, monthOf } from './dates';
+import { civilMs, nextDate, period, monthOf, performanceStages } from './dates';
 import { insuranceReference, isLateMealEligible } from './policy';
 
 export const D = Decimal.clone({precision:40, rounding:Decimal.ROUND_HALF_UP});
@@ -163,11 +163,12 @@ export function calculate(r:Rules,c:Cycle,all:Shift[]):PayResult{
     if(r.mealMethod==='unknown')warnings.push('月餐补的发放方式未知，未计入现金收入与实发。');
   }
   if(c.heatEnabled)add(basic('heat',r.fuzhouPolicy&&c.month>='2026-10'?'公司夏季福利':'高温补贴',c.heatConfirmed&&(c.heatActual!==''||verified),c.heatActual!==''?'本期实际录入':`${r.heat} × ${r.heatProrate?factor.toString():'1'}`,'截图6–9月50元福利；法定高温作业津贴须另外核验，不能以50元替代',c.heatConfirmed?'payslip':'manual'),c.heatActual!==''?c.heatActual:dec(r.heat).mul(r.heatProrate?factor:1));
-  if(c.performanceActual!==''||r.performance!==''&&r.performanceMethod!=='manual'){
-    const ratio=r.employee==='trial'?dec(r.trialRatio).div(100):dec(1);
+  const stages=performanceStages(r,bounds);
+  if(c.performanceActual!==''||stages.length===1&&r.performance!==''&&r.performanceMethod!=='manual'){
+    const ratio=dec(stages[0].ratio).div(100);
     const p=c.performanceActual!==''?dec(c.performanceActual):dec(r.performance).mul(ratio).mul(r.performanceMethod==='prorate'?factor:1);
-    add(basic('performance','绩效奖金',c.performanceConfirmed&&(c.performanceActual!==''||verified),c.performanceActual!==''?'本期实际绩效':`${r.performance} × ${ratio.toString()}${r.performanceMethod==='prorate'?` × ${factor.toString()}`:''}`,'历史 ¥68.25 仅用于历史周期',c.performanceConfirmed?'payslip':'auto'),p);
-  }else warnings.push('正式绩效标准未知，本周期未录入实际绩效，暂未计绩效。');
+    add(basic('performance','绩效奖金',c.performanceConfirmed&&(c.performanceActual!==''||verified),c.performanceActual!==''?'本期实际绩效':`${r.performance} × ${ratio.toString()}${r.performanceMethod==='prorate'?` × ${factor.toString()}`:''}`,'按本周期的实际金额或适用绩效比例计入。',c.performanceConfirmed?'payslip':'auto'),p);
+  }else warnings.push(stages.length===2?'本周期跨转正日，分段折算方式待确认，绩效待工资条补录。':'本周期绩效尚无已确认金额或可用估算标准。');
   for(const [enabled,confirmed,id,name,value] of [[c.midGift,c.midConfirmed,'mid-gift','中秋节礼金',r.employee==='trial'?r.midTrial:r.midRegular],[c.nationalGift,c.nationalConfirmed,'national-gift','国庆节礼金',r.employee==='trial'?r.nationalTrial:r.nationalRegular]] as const){if(enabled)add(basic(id,name,confirmed&&verified,`${value} × 1`,'公司福利，与法定节假日加班费独立',confirmed?'payslip':'pending'),value);}
   for(const e of c.extras)add({...basic('extra-'+e.id,e.name,e.confirmed,'手动输入',e.note,e.confirmed?'payslip':e.source),method:e.method},e.amount);
   const references=c.insuranceMode==='minimum'?insuranceReference(c.month,r.hireDate):[];
@@ -238,7 +239,7 @@ export function dailyWageDetails(date:string,r:Rules,all:Shift[],cycles:Record<s
   const analyses=analyzeShifts(shifts,r),segments=shifts.flatMap(s=>analyses.get(s.id)!.segments),lines:DailyWageLine[]=[];
   const paidNormal=sum([...paidNormalByDate(records,r).values()]),paidRest=records.some(s=>nonWork(s)&&paidDayHours(s,r)?.gt(0));
   const c=cycles[monthOf(date,r.cycleEnd)],accrued=c?c.mode==='attendance':r.fuzhouPolicy,rate=dailyBase(r,c,all).div(r.standardHours),uncapped=money(rate.mul(paidNormal),r.rounding);
-  if(dec(earning.base).gt(0)||accrued&&paidNormal.gt(0))lines.push({name:paidRest?(records.some(s=>s.type==='paidLeave')?'带薪假工资':'法定带薪假工资'):segments.some(s=>s.type==='holiday')?'基本工资分摊（带薪节日）':'正常工时工资',formula:r.fuzhouPolicy||accrued?`${paidNormal.toString()} 小时 × ${rate.toFixed(5)} 元/小时${paidRest?'（带薪假，不是加班）':''}`:'按本周期日工资分母折算',amount:accrued?uncapped:earning.base});
+  if(dec(earning.base).gt(0)||accrued&&paidNormal.gt(0))lines.push({name:paidRest?(records.some(s=>s.type==='paidLeave')?(shifts.length?'正常工时与带薪假工资':'带薪假工资'):'法定带薪假工资'):segments.some(s=>s.type==='holiday')?'基本工资分摊（带薪节日）':'正常工时工资',formula:r.fuzhouPolicy||accrued?`${paidNormal.toString()} 小时 × ${rate.toFixed(5)} 元/小时${paidRest?'（带薪假，不是加班）':''}`:'按本周期日工资分母折算',amount:accrued?uncapped:earning.base});
   if(accrued&&!dec(uncapped).eq(earning.base))lines.push({name:'月基本工资上限调整',formula:`本周期累计基本工资不超过 ${c?.baseActual||r.base} 元；加班费不受此上限影响`,amount:money(dec(earning.base).minus(uncapped),r.rounding)});
   for(const [type,name,multiplier] of [['normal','平日加班费',r.normalRate],['rest','休息日加班费',r.restRate],['holiday','法定节假日加班费',r.holidayRate]] as const){
     const group=segments.filter(s=>s.type===type),hours=sum(group.map(s=>s.overtime));

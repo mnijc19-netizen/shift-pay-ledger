@@ -157,6 +157,48 @@
 
 .review-indicator{border:0;background:transparent;padding:0;cursor:pointer;font-family:inherit}
 
+.review-import { margin: 12px 0; }
+.review-import .backup-card { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 9px; }
+.review-import .backup-card span { flex-basis: 100%; }
+.payroll-performance, .official-payroll {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+.payroll-performance h2 { margin-bottom: 4px; }
+.payroll-performance .muted { font-size: 12px; }
+.performance-stages { display: flex; flex-wrap: wrap; gap: 8px; }
+.performance-stages > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--cream);
+  color: var(--muted);
+  font-size: 12px;
+}
+.performance-stages strong, .performance-amount, .official-payroll strong {
+  color: var(--deep);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.official-payroll strong { display: block; margin-top: 4px; }
+.reconcile-editor > summary { cursor: pointer; color: var(--deep); font-weight: 650; padding-block: 7px; }
+.reconcile-editor[open] > summary { margin-bottom: 14px; }
+.official-line {
+  display: grid;
+  grid-template-columns: minmax(0,1.5fr) repeat(2,minmax(0,1fr));
+  gap: 4px 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.official-line > span { text-align: right; font-variant-numeric: tabular-nums; }
+.official-line > span:first-child { text-align: left; }
+.official-line > small { grid-column: 1 / -1; line-height: 1.6; }
+.official-heading { color: var(--muted); font-size: 12px; }
+
 /* Shared surfaces and emphasis for the ledger, calendar, and editing dialogs. */
 :root {
   color: #23332c;

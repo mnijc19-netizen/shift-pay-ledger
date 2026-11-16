@@ -1,6 +1,41 @@
 import { test, expect } from '@playwright/test';
 import { readLedger } from './storageHelpers';
 
+test('核对文件合并历史工资条和调休，跨转正周期保留实际考勤',async({page})=>{
+  await page.clock.setFixedTime(new Date('2026-11-16T10:00:00+08:00'));
+  await page.goto('/');
+  const before=await readLedger(page);
+  const patch={
+    kind:'shift-pay-review-v1',regularFrom:'2026-11-10',
+    payslip:{id:'test-issued',month:'2026-10',issuedNet:'900.00',actualNet:'',confirmed:false,note:'',
+      rows:[{id:'test-bonus',key:'performance',name:'绩效奖金',amount:'123.00',confirmed:true,note:'公司工资条'}]},
+    leave:[{date:'2026-10-12',hours:'8',workedHours:'0'}],
+  };
+  const apply=async()=>{
+    await page.getByRole('button',{name:'数据与备份',exact:true}).click();
+    await page.getByLabel('选择工资核对补录文件').setInputFiles({name:'review.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(patch))});
+    await expect(page.getByTestId('issued-net')).toHaveText('¥900.00');
+  };
+  await apply();
+  await expect(page.getByTestId('period-actual')).toHaveText('待录入');
+  await expect(page.getByRole('region',{name:'本期绩效'})).toContainText('¥123.00');
+  await apply();
+  const after=await readLedger(page);
+  expect(after.shifts.filter(s=>s.date==='2026-10-12')).toMatchObject([{type:'paidLeave',paidHours:'8'}]);
+  expect(after.shifts.filter(s=>s.date!=='2026-10-12')).toEqual(before.shifts.filter(s=>s.date!=='2026-10-12'));
+  expect(after.payslips.filter(s=>s.month==='2026-10')).toHaveLength(1);
+  await page.getByRole('region',{name:'本周期出勤和到账'}).getByRole('button',{name:'工资条核对'}).click();
+  await expect(page.getByRole('heading',{name:'公司工资条明细'})).toBeVisible();
+  await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'工资总览'}).click();
+  await page.getByLabel('选择工资周期月份').fill('2026-11');
+  const performance=page.getByRole('region',{name:'本期绩效'});
+  await expect(performance).toContainText('10-26 至 11-09');
+  await expect(performance).toContainText('11-10 至 11-25');
+  await expect(performance).toContainText('60%');
+  await expect(performance).toContainText('100%');
+  await expect(performance).toContainText('金额待工资条确认');
+});
+
 test.beforeEach(async({page})=>{await page.clock.setFixedTime(new Date('2026-11-05T10:00:00+08:00'));});
 test('累计明细跳转复用本期金额，工资条确认到账独立更新',async({page})=>{
   await page.goto('/');

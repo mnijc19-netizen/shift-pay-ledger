@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { ArrowUpRight, ArrowRight, CalendarCheck2, Settings2, Save, ChevronDown, Wallet, CalendarDays, ListChecks, CircleHelp } from 'lucide-react';
 import type { State, Cycle, PayResult, PayItem } from '../domain/model';
 import { sourceLabels, extraSchema, uid } from '../domain/model';
-import { period } from '../domain/dates';
-import { sum, money, attendanceTotals } from '../domain/engine';
+import { period, performanceStages } from '../domain/dates';
+import { sum, money, dec, attendanceTotals } from '../domain/engine';
 import type { CumulativePayroll } from '../domain/payroll';
 import { LifetimeSummary } from './LifetimeSummary';
 import type { Commit } from './Attendance';
@@ -38,6 +38,11 @@ export function Overview({state,cycle,result,lifetime,view,onViewChange,onSelect
   };
   const renderRow=(i:PayItem)=><tr key={i.id} data-pay-item={i.id} onClick={()=>setDetail(i)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setDetail(i);}}><td><strong>{i.name}</strong><small>{i.hours?prettyHours(i.hours)+' 小时':i.id.startsWith('summary-night-')?i.shiftIds.length+' 班累计':i.deduction?'个人承担部分':'本月工资项目'}</small></td><td><Badge tone={i.confirmed?'green':'amber'}>{i.confirmed?'已确认':'预计 / 待核验'}</Badge></td><td className={i.deduction?'deduction-amount':''}>{i.deduction?'−':''}{currency(i.amount)}</td><td><ArrowUpRight size={15}/></td></tr>;
   const hasActual=slip!==undefined&&slip.actualNet!=='';
+  const issuedNet=slip?.issuedNet;
+  const stages=performanceStages(state.rules,bounds);
+  const slipPerformance=slip?.rows.find(row=>row.key==='performance'&&row.confirmed);
+  const performanceAmount=slipPerformance?.amount??result.items.find(item=>item.id==='performance')?.amount;
+  const performanceStatus=slipPerformance?'工资条已确认':performanceAmount!==undefined?'已计入本期':'金额待工资条确认';
   return <div className="pay-overview">
     <header className="page-title overview-title"><div><span className="eyebrow">班薪记 · 工资账本</span><h1>工资总览<span className="title-dot">。</span></h1><p>看本期进度、入职累计，也能逐笔核对。</p></div></header>
     <div className="overview-nav">
@@ -46,25 +51,34 @@ export function Overview({state,cycle,result,lifetime,view,onViewChange,onSelect
     </div>
     {view==='period'&&<div className="overview-panel" role="region" aria-label="本周期总览">
       <div className="overview-period-grid">
-        <section className="pay-hero overview-hero"><div className="hero-top"><span>{accrued?'已录考勤累计应发':'预计实发工资'}</span><Badge tone="hero">{readonly?'历史快照':'工资估算'}</Badge></div>
-          <div className="hero-amount" data-testid={accrued?'earned':'net'}>{currency(accrued?result.gross:result.net)}</div>
-          <p className="hero-caption">{accrued?'按已录工时、津贴与奖金累计':'应发工资减去已录及参考扣款'}</p>
-          <dl className="overview-hero-facts"><div><dt>{accrued?'扣款后参考到账':'税前应发'}</dt><dd data-testid={accrued?'net':undefined}>{currency(accrued?result.net:result.gross)}</dd></div><div><dt>个人扣款 · 含参考</dt><dd>{currency(result.deductions)}</dd></div></dl>
+        <section className="pay-hero overview-hero"><div className="hero-top"><span>{issuedNet!==undefined?'公司工资条实发':accrued?'已录考勤累计应发':'预计实发工资'}</span><Badge tone="hero">{readonly?'历史快照':issuedNet!==undefined?'工资条已出':'工资估算'}</Badge></div>
+          <div className="hero-amount" data-testid={issuedNet!==undefined?'issued-net':accrued?'earned':'net'}>{currency(issuedNet??(accrued?result.gross:result.net))}</div>
+          <p className="hero-caption">{issuedNet!==undefined?'按公司工资条记录':accrued?'按已录工时、津贴与奖金累计':'应发工资减去已录及参考扣款'}</p>
+          <dl className="overview-hero-facts">{issuedNet!==undefined?<><div><dt>网站扣后估算</dt><dd data-testid="net">{currency(result.net)}</dd></div><div><dt>工资条与估算差额</dt><dd>{currency(money(dec(issuedNet).minus(result.net)))}</dd></div></>:<><div><dt>{accrued?'扣款后参考到账':'税前应发'}</dt><dd data-testid={accrued?'net':undefined}>{currency(accrued?result.net:result.gross)}</dd></div><div><dt>个人扣款 · 含参考</dt><dd>{currency(result.deductions)}</dd></div></>}</dl>
           <div className="hero-bottom"><CalendarCheck2 size={16}/><span>{bounds.start} — {bounds.end}</span><button className="text-button" onClick={()=>onViewChange('details')}>查看明细 <ArrowRight size={14}/></button></div>
         </section>
         <section className="card overview-period-side" aria-label="本周期出勤和到账">
           <div className="attendance-summary-heading"><h2>本周期出勤</h2><span>{result.stats.day} 白班 / 短班 · {result.stats.night} 夜班</span></div>
           <div className="attendance-summary-values"><div><span>上班天数</span><strong><span data-testid="period-workdays">{cycleAttendance.days}</span><small> 天</small></strong></div><div><span>总工时</span><strong><span data-testid="period-workhours">{prettyHours(cycleAttendance.hours)}</span><small> 小时</small></strong></div></div>
-          <div className="overview-actual"><div><span>工资条实际到账</span><strong data-testid="period-actual">{hasActual?currency(slip.actualNet):'待录入'}</strong>{hasActual&&<small className="muted">{slip.confirmed?'已确认到账':'待确认到账'}</small>}</div><button className="text-button" onClick={onCompare}>工资条核对 <ArrowRight size={14}/></button></div>
+          <div className="overview-actual"><div><span>银行实际到账</span><strong data-testid="period-actual">{hasActual?currency(slip.actualNet):'待录入'}</strong>{hasActual&&<small className="muted">{slip.confirmed?'已确认到账':'待确认到账'}</small>}</div><button className="text-button" onClick={onCompare}>工资条核对 <ArrowRight size={14}/></button></div>
         </section>
       </div>
-    {accrued&&closed&&cycle.baseActual===''&&!readonly&&<section className="card settlement-card" aria-label="完整周期结算提示"><h2>本周期已结束，请核对底薪结算</h2><p className="muted small">当前底薪 {currency(result.items.find(i=>i.id==='base')?.amount??'0')} 是已录正常工时及带薪假的累计，不等于完整周期的合同月底薪。确认本期完整在职、休息属于排班且没有另行无薪扣款时，可按月底薪 {currency(state.rules.base)} 结算，加班费另加。需要扣薪的个人请假，请在本周期参数录入实际扣款。</p><button className="button secondary small-button" onClick={settleMonth}>按整月结算本期</button></section>}
+    {state.rules.regularFrom&&<section className="card payroll-performance" aria-label="本期绩效">
+      <div><h2>本期绩效</h2><span className="muted">{performanceStatus}</span></div>
+      <div className="performance-stages">
+        {stages.map(stage=><div key={stage.start}><span>{stage.start.slice(5)} 至 {stage.end.slice(5)}</span><strong>{stage.ratio}%</strong></div>)}
+      </div>
+      {performanceAmount!==undefined?<strong className="performance-amount">{currency(performanceAmount)}</strong>:
+        <p className="muted small">{stages.length===2?'转正生效日按 100% 显示，整期绩效待确认分段算法。':'正式绩效基数待确认。'}</p>}
+    </section>}
+    {issuedNet===undefined&&accrued&&closed&&cycle.baseActual===''&&!readonly&&<section className="card settlement-card" aria-label="完整周期结算提示"><h2>本周期已结束，请核对底薪结算</h2><p className="muted small">当前底薪 {currency(result.items.find(i=>i.id==='base')?.amount??'0')} 是已录正常工时及带薪假的累计，不等于完整周期的合同月底薪。确认本期完整在职、休息属于排班且没有另行无薪扣款时，可按月底薪 {currency(state.rules.base)} 结算，加班费另加。需要扣薪的个人请假，请在本周期参数录入实际扣款。</p><button className="button secondary small-button" onClick={settleMonth}>按整月结算本期</button></section>}
     </div>}
     {view==='lifetime'&&<LifetimeSummary payroll={lifetime} hireDate={state.rules.hireDate} onSelect={onSelectCycle}/>}
     {view==='details'&&<div className="overview-panel" role="region" aria-label="本周期工资明细">
-    <div className="content-columns overview-details-grid"><div className="stack"><section className="card ledger-card" aria-label="当月工资条"><div className="section-heading"><div><h2>{cycle.month} 工资条</h2><p className="muted small">已确认现金 {currency(result.confirmedCash)} · 待核验现金 {currency(result.expectedCash)}</p></div><select className="filter-select" aria-label="筛选工资项目" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">全部项目</option><option value="confirmed">已确认</option><option value="expected">预计 / 待核验</option></select></div>
+    {issuedNet!==undefined&&<section className="card official-payroll"><div><span className="muted small">公司工资条实发</span><strong>{currency(issuedNet)}</strong></div><button className="button secondary" onClick={onCompare}>查看公司明细和差额 <ArrowRight size={14}/></button></section>}
+    <div className="content-columns overview-details-grid"><div className="stack"><section className="card ledger-card" aria-label="当月工资条"><div className="section-heading"><div><h2>{cycle.month} 工资估算明细</h2><p className="muted small">已确认现金 {currency(result.confirmedCash)} · 待核验现金 {currency(result.expectedCash)}</p></div><select className="filter-select" aria-label="筛选工资项目" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">全部项目</option><option value="confirmed">已确认</option><option value="expected">预计 / 待核验</option></select></div>
     <div className="monthly-section-title"><h3>工资收入 · 本期合计</h3><strong>{currency(result.gross)}</strong></div><div className="table-scroll"><table className="ledger-table" data-testid="monthly-income"><thead><tr><th>工资项目</th><th>状态</th><th>金额（元）</th><th/></tr></thead><tbody>{wageRows.map(renderRow)}</tbody><tfoot><tr><td>本期应发工资</td><td>不含饭卡</td><td>{currency(result.gross)}</td><td/></tr></tfoot></table></div>
-    <div className="monthly-additions"><p className="muted small">{result.items.some(i=>i.id==='performance')?'绩效已按本期记录计入。':'绩效金额尚未填写，暂未计入应发。'}其他奖金、补发可在这里追加。</p><button className="button secondary small-button" disabled={readonly} onClick={()=>{setAdditionError('');setAddition({kind:'performance',name:'其他奖金 / 补发',amount:cycle.performanceActual,note:'',confirmed:cycle.performanceConfirmed});}}>记录绩效 / 其他收入</button></div>
+    <div className="monthly-additions"><p className="muted small">{slipPerformance?`公司工资条绩效 ${currency(slipPerformance.amount)}，见工资条核对。`:result.items.some(i=>i.id==='performance')?'绩效已计入估算。':'绩效金额待核对，估算暂未计入。'}其他奖金、补发可在这里追加。</p><button className="button secondary small-button" disabled={readonly} onClick={()=>{setAdditionError('');setAddition({kind:'performance',name:'其他奖金 / 补发',amount:cycle.performanceActual,note:'',confirmed:cycle.performanceConfirmed});}}>记录绩效 / 其他收入</button></div>
     <div className="monthly-section-title"><h3>个人扣款 · 本期合计</h3><strong>−{currency(result.deductions)}</strong></div>{deductionRows.length?<div className="table-scroll"><table className="ledger-table" data-testid="monthly-deductions"><thead><tr><th>扣款项目</th><th>状态</th><th>金额（元）</th><th/></tr></thead><tbody>{deductionRows.map(renderRow)}</tbody></table></div>:<p className="muted small monthly-empty">{filter==='all'?'尚未记录扣款，不代表实际扣款为零。':'此筛选条件下没有扣款项目。'}</p>}
     <div className="monthly-net"><span>{accrued?'扣款后参考到账':'预计实发工资'}<small>应发 {currency(result.gross)} − 扣款 {currency(result.deductions)}</small></span><strong data-testid="net">{currency(result.net)}</strong></div><p className="muted small monthly-empty">{accrued?'只累计已录班次的正常工时工资，不预加整月底薪。五险一金仍按月参考，累计收入不足时扣后参考可能为负，不代表欠款。':'本周期使用手选的整月预测、部分周期或实际工资口径；基本工资不重复相加。'}</p></section>
     {benefits.length>0&&<section className="card benefits-card" aria-label="饭卡和非现金福利"><div className="section-heading"><h2>饭卡与非现金福利</h2><Badge>不计工资</Badge></div>{benefits.map(i=><button className="benefit-row" key={i.id} onClick={()=>setDetail(i)}><span><strong>{i.name}</strong><small>{i.method==='card'?'充入饭卡，不计应发或实发工资':i.method==='unknown'?'发放形式待确认，未计工资':'其他非现金福利'}</small></span><strong>{currency(i.amount)}</strong></button>)}<p className="muted small">夜班餐补按现金收入列在上方。</p></section>}</div>
