@@ -5,6 +5,7 @@ import { stateSchema, uid } from './domain/model';
 import { splitShift, validateAttendance } from './domain/engine';
 import { createPayrollLedger } from './domain/payroll';
 import { applyPayrollReview } from './domain/payrollReview';
+import { readReviewAdjustment } from './domain/reviewSync';
 import { monthOf, period } from './domain/dates';
 import { persist, parseBackup, validateLedger, upgradeSavedState, download, ledgerCsv, attendanceCsv, payslipCsv, storageErrorMessage, exportLegacyBackup } from './domain/storage';
 import type { LoadResult } from './domain/storage';
@@ -60,26 +61,47 @@ export default function App({initial}:{initial:LoadResult}){
   });};
   const restore=async(file:File)=>{try{if(file.size>20*1024*1024)throw new Error('备份文件超过 20MB。');const recovered=upgradeSavedState(parseBackup(await file.text()));recovered.audit=compactAuditEntries(recovered.audit);await enqueue(async()=>{const before=stateRef.current;download('班薪记-恢复前备份-'+today()+'.json',storageError&&initial.raw?initial.raw:JSON.stringify(before,null,2));const delta=diffs(before,recovered);recovered.audit.push({id:uid(),at:new Date().toISOString(),action:'恢复 JSON 备份',note:'恢复前已导出原数据；文件 '+file.name,...delta});await persist(recovered);stateRef.current=recovered;setState(recovered);setStorageError('');setSnapshotId('');setToast('备份已恢复，恢复前的数据已导出。');});}catch(e){setToast('恢复失败，原数据未改动：'+(e as Error).message);}};
   const exportMonth=()=>{download(month+'-工资明细.csv',ledgerCsv(result),'text/csv;charset=utf-8');};
+  const applyReview=async(input:unknown,receipt?:string)=>{
+    let importedMonth='';
+    const saved=await commit('导入工资核对补录',receipt?'核对链接 '+receipt:'已核对的工资条、调休与转正日期',before=>{
+      if(receipt&&before.audit.some(entry=>entry.action==='导入工资核对补录'&&entry.note==='核对链接 '+receipt)){
+        throw new Error('这份工资核对已经入账。');
+      }
+      const updated=validateLedger(applyPayrollReview(before,input));
+      importedMonth=updated.payslips.at(-1)!.month;
+      return updated;
+    });
+    if(saved){
+      setDataOpen(false);
+      setSnapshotId('');
+      setMonth(importedMonth);
+      setOverviewView('period');
+      setPage('overview');
+      window.scrollTo(0,0);
+    }
+    return saved;
+  };
   const importReview=async(file:File)=>{
     try{
       if(file.size>1024*1024)throw new Error('核对补录文件超过 1 MB。');
-      const input:unknown=JSON.parse(await file.text());
-      let importedMonth='';
-      const saved=await commit('导入工资核对补录','已核对的工资条、调休与转正日期',before=>{
-        const updated=validateLedger(applyPayrollReview(before,input));
-        importedMonth=updated.payslips.at(-1)!.month;
-        return updated;
-      });
-      if(saved){
-        setDataOpen(false);
-        setSnapshotId('');
-        setMonth(importedMonth);
-        setOverviewView('period');
-        setPage('overview');
-        window.scrollTo(0,0);
-      }
+      await applyReview(JSON.parse(await file.text()));
     }catch(error){setToast(error instanceof SyntaxError?'核对补录文件不是有效的 JSON。':(error as Error).message);}
   };
+  const reviewLinkStarted=useRef(false);
+  useEffect(()=>{
+    const hash=window.location.hash;
+    if(reviewLinkStarted.current||!hash.startsWith('#review='))return;
+    reviewLinkStarted.current=true;
+    setToast('正在读取已核对的工资记录…');
+    const controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),15000);
+    void readReviewAdjustment(hash,controller.signal)
+      .then(async input=>{
+        if(await applyReview(input,hash.split('.')[1]))history.replaceState(null,'',location.pathname+location.search);
+      })
+      .catch((error:unknown)=>setToast(error instanceof Error&&error.name==='AbortError'?'读取超时，联网后可重新打开核对链接。':error instanceof Error?error.message:'暂时无法打开核对链接。'))
+      .finally(()=>window.clearTimeout(timeout));
+  },[applyReview]);
   const goto=(id:Page)=>{setPage(id);setSnapshotId('');if(id==='overview')setOverviewView('period');setMobileMenu(false);window.scrollTo({top:0,behavior:'smooth'});};
   const bounds=period(cycle.month,activeState.rules.cycleEnd);
   return <div className="app-shell"><aside className={'sidebar '+(mobileMenu?'open':'')}><a className="brand" href="#" onClick={e=>{e.preventDefault();goto('overview');}}><span className="brand-symbol"><BookOpen size={23}/></span><span>班薪记<small>每一班，都有数</small></span></a><div className="nav-label">我的工资账本</div><nav aria-label="主导航">{navigation.map(n=><button key={n.id} className={'nav-item '+(page===n.id?'active':'')} onClick={()=>goto(n.id)}><n.icon size={19}/><span>{n.title}</span>{page===n.id&&<span className="active-indicator"/>}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item" onClick={()=>{setDataOpen(true);setMobileMenu(false);}}><Database size={18}/>数据与备份</button><div className="privacy-card"><ShieldCheck size={18}/><strong>本机账本</strong><p>{review.connected?'私有核对已开启；完整账本仍在此设备保存。':'数据默认在本机保存。可导出备份或开启私有核对。'}</p><Badge tone="green">{review.connected?'本机保存 · 私有核对':'浏览器本地存储'}</Badge></div><div className="sidebar-user"><div className="avatar">我</div><div><strong>我的个人账本</strong><span>{(state.rules.regularFrom?asOf>=state.rules.regularFrom:state.rules.employee==='regular')?'正式员工':'试用期员工'} · {state.rules.hireDate} 入职</span></div></div></div></aside>{mobileMenu&&<div className="sidebar-backdrop" onClick={()=>setMobileMenu(false)}/>}

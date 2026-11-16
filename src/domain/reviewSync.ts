@@ -73,3 +73,31 @@ export async function publishReviewCopy(connection:ReviewConnection, state:State
   }
   throw new Error('私有副本上传失败，请检查网络和仓库的 Contents 读写权限。');
 }
+
+const adjustmentLink = /^#review=([0-9a-f-]{36})\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/;
+const decodeBase64 = (value:string) => Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/')),letter=>letter.charCodeAt(0));
+
+export async function readReviewAdjustment(hash:string, signal:AbortSignal):Promise<unknown> {
+  const match=adjustmentLink.exec(hash);
+  if(!match)throw new Error('核对链接格式无效。');
+  const [,device,id,secret]=match;
+  const connection=readReviewConnection();
+  if(connection?.device!==device)throw new Error('请用平时记考勤并已开启私有核对的浏览器打开此链接。');
+
+  const branch=await verifyReviewRepository(connection.token,signal);
+  const path='/contents/adjustments/'+device+'/'+id+'.json?ref='+encodeURIComponent(branch);
+  const response=await request(connection.token,path,signal);
+  if(!response.ok)throw new Error('暂时无法读取核对补录，请联网后重新打开链接。');
+  const file=await response.json();
+  if(file.encoding!=='base64'||typeof file.content!=='string'||file.size>1024*1024)throw new Error('核对补录文件格式无效。');
+  const envelope=JSON.parse(new TextDecoder().decode(decodeBase64(file.content)));
+  if(envelope.version!==1||typeof envelope.iv!=='string'||typeof envelope.data!=='string')throw new Error('核对补录文件格式无效。');
+
+  const key=await crypto.subtle.importKey('raw',decodeBase64(secret),'AES-GCM',false,['decrypt']);
+  const plain=await crypto.subtle.decrypt({
+    name:'AES-GCM',
+    iv:decodeBase64(envelope.iv),
+    additionalData:encoder.encode('shift-pay-review-v1/'+device+'/'+id),
+  },key,decodeBase64(envelope.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}

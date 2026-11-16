@@ -1,5 +1,34 @@
 import { test, expect } from '@playwright/test';
 import { readLedger } from './storageHelpers';
+import { createCipheriv, randomBytes } from 'node:crypto';
+
+test('手机打开私有核对链接后直接入账并回到对应工资周期',async({page})=>{
+  const device='81070f85-5be5-44f2-acd7-20ec77d2eaaf',id='b1f62ed7-a64b-4d7b-b2b7-aeb24030f06c';
+  const key=randomBytes(32),iv=randomBytes(12);
+  const cipher=createCipheriv('aes-256-gcm',key,iv);
+  cipher.setAAD(Buffer.from('shift-pay-review-v1/'+device+'/'+id));
+  const input={kind:'shift-pay-review-v1',regularFrom:'2026-11-10',leave:[],
+    payslip:{id:'link-issued',month:'2026-10',issuedNet:'900.00',actualNet:'',confirmed:false,note:'',rows:[]}};
+  const data=Buffer.concat([cipher.update(JSON.stringify(input)),cipher.final(),cipher.getAuthTag()]);
+  const content=Buffer.from(JSON.stringify({version:1,iv:iv.toString('base64'),data:data.toString('base64')})).toString('base64');
+  await page.addInitScript(device=>localStorage.setItem('shift-pay:private-review:v1',JSON.stringify({device,token:'github_pat_test'})),device);
+  await page.route('https://api.github.com/repos/**',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname.endsWith('/adjustments/'+device+'/'+id+'.json')){
+      await route.fulfill({json:{encoding:'base64',content}});
+    }else if(url.pathname.endsWith('/shift-pay-private-ledger')){
+      await route.fulfill({json:{id:1447139541,full_name:'mnijc19-netizen/shift-pay-private-ledger',private:true,visibility:'private',default_branch:'main'}});
+    }else await route.abort();
+  });
+  await page.setViewportSize({width:375,height:812});
+  await page.goto('/?test=review-link#review='+device+'.'+id+'.'+key.toString('base64url'));
+  await expect(page.getByTestId('issued-net')).toHaveText('¥900.00');
+  await expect(page.getByLabel('选择工资周期月份')).toHaveValue('2026-10');
+  await expect.poll(()=>new URL(page.url()).hash).toBe('');
+  const saved=await readLedger(page);
+  expect(saved.payslips.filter(slip=>slip.month==='2026-10')).toHaveLength(1);
+  expect(saved.rules.regularFrom).toBe('2026-11-10');
+});
 
 test('核对文件合并历史工资条和调休，跨转正周期保留实际考勤',async({page})=>{
   await page.clock.setFixedTime(new Date('2026-11-16T10:00:00+08:00'));
