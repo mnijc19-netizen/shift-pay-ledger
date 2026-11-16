@@ -33,6 +33,7 @@ test('手机打开私有核对链接后直接入账并回到对应工资周期',
 test('核对文件合并历史工资条和调休，跨转正周期保留实际考勤',async({page})=>{
   await page.clock.setFixedTime(new Date('2026-11-16T10:00:00+08:00'));
   await page.goto('/');
+  await expect(page.getByRole('heading',{name:'工资总览。'})).toBeVisible();
   const before=await readLedger(page);
   const patch={
     kind:'shift-pay-review-v1',regularFrom:'2026-11-10',
